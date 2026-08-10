@@ -1,0 +1,140 @@
+import type {
+  YoutubeComment,
+  YoutubeThumbnail,
+  YoutubeVideo,
+} from "../types.js";
+
+export type YoutubeVideoResource = {
+  id: string;
+  snippet: {
+    title: string;
+    channelId: string;
+    channelTitle: string;
+    publishedAt: string;
+    description?: string;
+    liveBroadcastContent?: "none" | "upcoming" | "live";
+    thumbnails?: Record<
+      string,
+      { url: string; width?: number; height?: number }
+    >;
+  };
+  contentDetails?: { duration?: string };
+  statistics?: {
+    viewCount?: string;
+    likeCount?: string;
+    commentCount?: string;
+  };
+  liveStreamingDetails?: {
+    actualStartTime?: string;
+    actualEndTime?: string;
+    scheduledStartTime?: string;
+  };
+};
+
+export type YoutubeCommentResource = {
+  id: string;
+  snippet: {
+    topLevelComment: RawComment;
+    totalReplyCount?: number;
+  };
+  replies?: { comments?: RawComment[] };
+};
+
+type YoutubeCommentSnippet = {
+  textDisplay?: string;
+  authorDisplayName?: string;
+  authorChannelId?: { value?: string };
+  likeCount?: number;
+  publishedAt?: string;
+  updatedAt?: string;
+};
+
+export type RawComment = {
+  id: string;
+  snippet: YoutubeCommentSnippet;
+};
+
+export function normalizeVideo(
+  resource: YoutubeVideoResource,
+  canonicalUrl: string,
+): YoutubeVideo {
+  return {
+    id: resource.id,
+    url: canonicalUrl,
+    title: resource.snippet.title,
+    channel_id: resource.snippet.channelId,
+    channel_name: resource.snippet.channelTitle,
+    published_at: resource.snippet.publishedAt,
+    duration_iso8601: resource.contentDetails?.duration,
+    description: resource.snippet.description || "",
+    thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
+    live_broadcast_content: resource.snippet.liveBroadcastContent,
+    live_streaming: resource.liveStreamingDetails
+      ? {
+          actual_start_time: resource.liveStreamingDetails.actualStartTime,
+          actual_end_time: resource.liveStreamingDetails.actualEndTime,
+          scheduled_start_time:
+            resource.liveStreamingDetails.scheduledStartTime,
+        }
+      : undefined,
+    statistics: {
+      view_count: numberOrUndefined(resource.statistics?.viewCount),
+      like_count: numberOrUndefined(resource.statistics?.likeCount),
+      comment_count: numberOrUndefined(resource.statistics?.commentCount),
+    },
+  };
+}
+
+export function normalizeCommentThread(
+  resource: YoutubeCommentResource,
+  includeReplies: boolean,
+): YoutubeComment {
+  const comment = normalizeComment(resource.snippet.topLevelComment);
+  const replies = includeReplies
+    ? (resource.replies?.comments || []).map(normalizeComment)
+    : undefined;
+  const replyCount = resource.snippet.totalReplyCount || 0;
+
+  return {
+    ...comment,
+    reply_count: replyCount,
+    ...(includeReplies && replies && replies.length > 0 ? { replies } : {}),
+    ...(includeReplies && replies && replies.length < replyCount
+      ? { replies_truncated: true }
+      : {}),
+  };
+}
+
+function normalizeComment(resource: RawComment): YoutubeComment {
+  return {
+    id: resource.id,
+    text: resource.snippet.textDisplay || "",
+    author: resource.snippet.authorDisplayName || "Unknown author",
+    author_channel_id: resource.snippet.authorChannelId?.value,
+    likes: resource.snippet.likeCount || 0,
+    published_at: resource.snippet.publishedAt || "",
+    updated_at: resource.snippet.updatedAt || "",
+    reply_count: 0,
+  };
+}
+
+function normalizeThumbnails(
+  thumbnails: YoutubeVideoResource["snippet"]["thumbnails"],
+): Record<string, YoutubeThumbnail> {
+  return Object.fromEntries(
+    Object.entries(thumbnails || {}).map(([name, thumbnail]) => [
+      name,
+      {
+        url: thumbnail.url,
+        width: thumbnail.width,
+        height: thumbnail.height,
+      },
+    ]),
+  );
+}
+
+function numberOrUndefined(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
