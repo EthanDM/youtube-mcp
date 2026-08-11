@@ -1,9 +1,17 @@
 import { YoutubeMcpError } from "../errors.js";
 
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
+const CHANNEL_HANDLE_PATTERN = /^@[\p{L}\p{M}\p{N}._-]{3,30}$/u;
 
 export type ParsedYoutubeUrl = {
   videoId: string;
+  canonicalUrl: string;
+};
+
+export type ParsedYoutubeChannelUrl = {
+  channelId?: string;
+  handle?: string;
   canonicalUrl: string;
 };
 
@@ -32,6 +40,50 @@ export function parseYoutubeUrl(value: string): ParsedYoutubeUrl {
   };
 }
 
+/** Parses public channel-ID and handle URLs without falling back to search. */
+export function parseYoutubeChannelUrl(value: string): ParsedYoutubeChannelUrl {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalidChannelUrl();
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    !isYoutubeHost(url.hostname.toLowerCase())
+  ) {
+    throw invalidChannelUrl();
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  const handle = parts.length === 1 ? decodePathPart(parts[0]!) : undefined;
+  if (handle && CHANNEL_HANDLE_PATTERN.test(handle)) {
+    return { handle, canonicalUrl: `https://www.youtube.com/${handle}` };
+  }
+  if (
+    parts.length === 2 &&
+    parts[0] === "channel" &&
+    CHANNEL_ID_PATTERN.test(parts[1]!)
+  ) {
+    const channelId = parts[1]!;
+    return {
+      channelId,
+      canonicalUrl: `https://www.youtube.com/channel/${channelId}`,
+    };
+  }
+
+  throw invalidChannelUrl();
+}
+
+function decodePathPart(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function isYoutubeHost(host: string): boolean {
   return (
     host === "youtube.com" ||
@@ -54,5 +106,12 @@ function invalidUrl(): YoutubeMcpError {
   return new YoutubeMcpError(
     "Provide a supported YouTube watch, Shorts, live, embed, or youtu.be URL with a valid video ID.",
     "invalid_youtube_url",
+  );
+}
+
+function invalidChannelUrl(): YoutubeMcpError {
+  return new YoutubeMcpError(
+    "Provide a supported YouTube channel URL using /channel/CHANNEL_ID or /@handle.",
+    "invalid_youtube_channel_url",
   );
 }

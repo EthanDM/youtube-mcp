@@ -7,6 +7,9 @@ import { getYoutubeConfig } from "./config.js";
 import { YoutubeClient } from "./lib/youtube.js";
 import {
   createToolHandlers,
+  findCommentsSchema,
+  getChannelSchema,
+  getChannelVideosSchema,
   getCommentsSchema,
   getVideoSchema,
 } from "./tools.js";
@@ -23,6 +26,39 @@ server.registerTool(
     inputSchema: getVideoSchema.shape,
   },
   handlers.getVideo,
+);
+
+server.registerTool(
+  "youtube_get_channel",
+  {
+    title: "Get YouTube Channel",
+    description:
+      "Gets normalized public metadata for a YouTube channel URL using /channel/CHANNEL_ID or /@handle.",
+    inputSchema: getChannelSchema.shape,
+  },
+  handlers.getChannel,
+);
+
+server.registerTool(
+  "youtube_get_channel_videos",
+  {
+    title: "Get YouTube Channel Videos",
+    description:
+      "Gets one explicit page of recent public uploads from a YouTube channel URL.",
+    inputSchema: getChannelVideosSchema.shape,
+  },
+  handlers.getChannelVideos,
+);
+
+server.registerTool(
+  "youtube_find_comments",
+  {
+    title: "Find YouTube Comments",
+    description:
+      "Finds literal terms across an explicit bounded number of comment pages. Results always describe retrieved pages only, never every comment on the video.",
+    inputSchema: findCommentsSchema.shape,
+  },
+  handlers.findComments,
 );
 
 server.registerTool(

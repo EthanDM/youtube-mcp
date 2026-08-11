@@ -1,4 +1,6 @@
 import type {
+  YoutubeChannel,
+  YoutubeChannelVideo,
   YoutubeComment,
   YoutubeThumbnail,
   YoutubeVideo,
@@ -38,6 +40,41 @@ export type YoutubeCommentResource = {
     totalReplyCount?: number;
   };
   replies?: { comments?: RawComment[] };
+};
+
+export type YoutubeChannelResource = {
+  id: string;
+  snippet: {
+    title: string;
+    description?: string;
+    customUrl?: string;
+    publishedAt: string;
+    thumbnails?: Record<
+      string,
+      { url: string; width?: number; height?: number }
+    >;
+  };
+  statistics?: {
+    viewCount?: string;
+    subscriberCount?: string;
+    hiddenSubscriberCount?: boolean;
+    videoCount?: string;
+  };
+  contentDetails?: { relatedPlaylists?: { uploads?: string } };
+};
+
+export type YoutubePlaylistItemResource = {
+  snippet: {
+    title: string;
+    description?: string;
+    publishedAt?: string;
+    thumbnails?: Record<
+      string,
+      { url: string; width?: number; height?: number }
+    >;
+    resourceId?: { videoId?: string };
+  };
+  contentDetails?: { videoId?: string; videoPublishedAt?: string };
 };
 
 type YoutubeCommentSnippet = {
@@ -102,6 +139,50 @@ export function normalizeCommentThread(
     ...(includeReplies && replies && replies.length < replyCount
       ? { replies_truncated: true }
       : {}),
+  };
+}
+
+export function normalizeChannel(
+  resource: YoutubeChannelResource,
+  canonicalUrl: string,
+  handle?: string,
+): YoutubeChannel {
+  return {
+    id: resource.id,
+    url: canonicalUrl,
+    title: resource.snippet.title,
+    handle,
+    custom_url: resource.snippet.customUrl,
+    description: resource.snippet.description || "",
+    published_at: resource.snippet.publishedAt,
+    thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
+    statistics: {
+      view_count: numberOrUndefined(resource.statistics?.viewCount),
+      subscriber_count: numberOrUndefined(resource.statistics?.subscriberCount),
+      subscriber_count_hidden:
+        resource.statistics?.hiddenSubscriberCount === true,
+      video_count: numberOrUndefined(resource.statistics?.videoCount),
+    },
+  };
+}
+
+export function normalizePlaylistItem(
+  resource: YoutubePlaylistItemResource,
+): YoutubeChannelVideo | undefined {
+  const videoId =
+    resource.contentDetails?.videoId || resource.snippet.resourceId?.videoId;
+  if (!videoId) return undefined;
+
+  return {
+    id: videoId,
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    title: resource.snippet.title,
+    description: resource.snippet.description || "",
+    published_at:
+      resource.contentDetails?.videoPublishedAt ||
+      resource.snippet.publishedAt ||
+      "",
+    thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
   };
 }
 

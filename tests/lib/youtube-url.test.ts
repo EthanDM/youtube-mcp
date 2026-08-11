@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseYoutubeUrl } from "../../src/lib/youtube-url.js";
+import {
+  parseYoutubeChannelUrl,
+  parseYoutubeUrl,
+} from "../../src/lib/youtube-url.js";
 
 describe("parseYoutubeUrl", () => {
   it.each([
@@ -24,5 +27,43 @@ describe("parseYoutubeUrl", () => {
     "not a URL",
   ])("rejects unsupported or malformed URL %s", (url) => {
     expect(() => parseYoutubeUrl(url)).toThrow("Provide a supported YouTube");
+  });
+});
+
+describe("parseYoutubeChannelUrl", () => {
+  it("normalizes channel ID and handle URLs", () => {
+    expect(
+      parseYoutubeChannelUrl(
+        "https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw?feature=share",
+      ),
+    ).toEqual({
+      channelId: "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+      canonicalUrl: "https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw",
+    });
+    expect(
+      parseYoutubeChannelUrl("https://youtube.com/@GoogleDevelopers"),
+    ).toEqual({
+      handle: "@GoogleDevelopers",
+      canonicalUrl: "https://www.youtube.com/@GoogleDevelopers",
+    });
+    expect(
+      parseYoutubeChannelUrl(
+        "https://youtube.com/@%E6%97%A5%E6%9C%AC%E8%AA%9E",
+      ),
+    ).toEqual({
+      handle: "@日本語",
+      canonicalUrl: "https://www.youtube.com/@日本語",
+    });
+  });
+
+  it.each([
+    "https://youtu.be/UC_x5XG1OV2P6uZZ5FSM9Ttw",
+    "https://youtube.com/user/GoogleDevelopers",
+    "https://notyoutube.com/@GoogleDevelopers",
+    "https://youtube.com/@no",
+  ])("rejects unsupported channel URL %s", (url) => {
+    expect(() => parseYoutubeChannelUrl(url)).toThrow(
+      "Provide a supported YouTube channel URL",
+    );
   });
 });

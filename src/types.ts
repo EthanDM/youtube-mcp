@@ -49,3 +49,49 @@ export type YoutubeCommentPage = {
   matched_terms?: string[];
   search_scope?: "retrieved_page_only";
 };
+
+export type YoutubeChannel = {
+  id: string;
+  url: string;
+  title: string;
+  handle?: string;
+  custom_url?: string;
+  description: string;
+  published_at: string;
+  thumbnails: Record<string, YoutubeThumbnail>;
+  statistics: {
+    view_count?: number;
+    subscriber_count?: number;
+    subscriber_count_hidden: boolean;
+    video_count?: number;
+  };
+};
+
+export type YoutubeChannelVideo = {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  published_at: string;
+  thumbnails: Record<string, YoutubeThumbnail>;
+};
+
+export type YoutubeChannelVideoPage = {
+  channel: Pick<YoutubeChannel, "id" | "url" | "title">;
+  videos: YoutubeChannelVideo[];
+  next_page_token?: string;
+  fetched_count: number;
+};
+
+export type YoutubeCommentSearchResult = {
+  video: Pick<YoutubeVideo, "id" | "url">;
+  comments: YoutubeComment[];
+  next_page_token?: string;
+  fetched_count: number;
+  matched_count: number;
+  matched_terms: string[];
+  search_scope: "retrieved_pages_only";
+  searched_pages: number;
+  max_pages: number;
+  complete: boolean;
+};

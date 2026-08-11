@@ -1,11 +1,14 @@
 # youtube-mcp
 
-Private, read-only YouTube MCP server for ChatGPT. It turns public YouTube URLs into structured video metadata and one explicit page of comment threads.
+Private, read-only YouTube MCP server for ChatGPT. It turns public video and channel URLs into structured context and bounded public-comment retrieval.
 
 ## Tools
 
 - `youtube_get_video`
 - `youtube_get_comments`
+- `youtube_find_comments`
+- `youtube_get_channel`
+- `youtube_get_channel_videos`
 
 The server does not expose OAuth, transcript extraction, caching, persistence, channel search, or any write action.
 
@@ -45,6 +48,10 @@ For contributor development only, run `pnpm dev`.
 - A call fetches one page only and returns `next_page_token` when YouTube supplies one.
 - `includeReplies` returns only the inline reply subset provided by YouTube. `replies_truncated` is true when more replies exist.
 - `matchTerms` applies a case-insensitive literal OR filter after retrieving the page. When it is used, `search_scope` is always `retrieved_page_only`; it does not search every comment on the video.
+
+`youtube_find_comments` searches a caller-specified `maxPages` (1–5) of comment threads for `matchTerms`. It returns `searched_pages`, `complete`, and `next_page_token`; its `search_scope` is always `retrieved_pages_only`.
+
+`youtube_get_channel` accepts public `/channel/CHANNEL_ID` and `/@handle` URLs. `youtube_get_channel_videos` returns one explicit page of the channel's public uploads playlist.
 
 ## Private ChatGPT connection
 

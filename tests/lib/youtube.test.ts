@@ -116,6 +116,87 @@ describe("YoutubeClient", () => {
       matched_terms: ["keffiyeh"],
     });
   });
+
+  it("finds terms across an explicit bounded number of comment pages", async () => {
+    const fetchMock = createRouterFetchMock({
+      "GET /youtube/v3/commentThreads?": (url) => {
+        if (!url.searchParams.get("pageToken")) {
+          return jsonResponse({
+            nextPageToken: "page-2",
+            items: [commentThread("one", "First source", 0)],
+          });
+        }
+        expect(url.searchParams.get("pageToken")).toBe("page-2");
+        return jsonResponse({
+          nextPageToken: "page-3",
+          items: [commentThread("two", "Second source", 0)],
+        });
+      },
+    });
+    const client = new YoutubeClient(config, fetchMock);
+
+    const result = await client.findComments({
+      url: "https://youtu.be/dQw4w9WgXcQ",
+      matchTerms: ["source"],
+      maxPages: 2,
+      limit: 10,
+      order: "time",
+      includeReplies: false,
+    });
+
+    expect(result).toMatchObject({
+      fetched_count: 2,
+      matched_count: 2,
+      matched_terms: ["source"],
+      search_scope: "retrieved_pages_only",
+      searched_pages: 2,
+      max_pages: 2,
+      complete: false,
+      next_page_token: "page-3",
+    });
+  });
+
+  it("gets normalized channel context and an explicit uploads page", async () => {
+    const fetchMock = createRouterFetchMock({
+      "GET /youtube/v3/channels?": (url) => {
+        expect(url.searchParams.get("forHandle")).toBe("@GoogleDevelopers");
+        expect(url.searchParams.get("part")).toBe(
+          "snippet,statistics,contentDetails",
+        );
+        return jsonResponse({ items: [channelResource()] });
+      },
+      "GET /youtube/v3/playlistItems?": (url) => {
+        expect(url.searchParams.get("playlistId")).toBe("uploads-1");
+        expect(url.searchParams.get("maxResults")).toBe("1");
+        return jsonResponse({
+          nextPageToken: "next-uploads",
+          items: [playlistItemResource()],
+        });
+      },
+    });
+    const client = new YoutubeClient(config, fetchMock);
+
+    await expect(
+      client.getChannel("https://youtube.com/@GoogleDevelopers"),
+    ).resolves.toMatchObject({
+      id: "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+      url: "https://www.youtube.com/@GoogleDevelopers",
+      handle: "@GoogleDevelopers",
+      custom_url: "GoogleDevelopers",
+      statistics: { subscriber_count: 100, subscriber_count_hidden: false },
+    });
+    await expect(
+      client.getChannelVideos({
+        url: "https://youtube.com/@GoogleDevelopers",
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      channel: { title: "Google Developers" },
+      videos: [{ id: "dQw4w9WgXcQ" }],
+      next_page_token: "next-uploads",
+      fetched_count: 1,
+    });
+  });
 });
 
 describe("YoutubeRequestClient", () => {
@@ -238,5 +319,39 @@ function commentThread(
       totalReplyCount: replyCount,
     },
     ...(replies ? { replies: { comments: replies } } : {}),
+  };
+}
+
+function channelResource() {
+  return {
+    id: "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+    snippet: {
+      title: "Google Developers",
+      description: "Developer videos",
+      customUrl: "GoogleDevelopers",
+      publishedAt: "2007-08-23T00:00:00Z",
+    },
+    statistics: {
+      viewCount: "1000",
+      subscriberCount: "100",
+      hiddenSubscriberCount: false,
+      videoCount: "10",
+    },
+    contentDetails: { relatedPlaylists: { uploads: "uploads-1" } },
+  };
+}
+
+function playlistItemResource() {
+  return {
+    snippet: {
+      title: "Latest video",
+      description: "Latest description",
+      publishedAt: "2026-08-01T00:00:00Z",
+      resourceId: { videoId: "dQw4w9WgXcQ" },
+    },
+    contentDetails: {
+      videoId: "dQw4w9WgXcQ",
+      videoPublishedAt: "2026-08-01T00:00:00Z",
+    },
   };
 }

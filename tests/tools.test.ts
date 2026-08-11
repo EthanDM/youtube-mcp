@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { YoutubeClient } from "../src/lib/youtube.js";
 import {
   createToolHandlers,
+  findCommentsSchema,
+  getChannelVideosSchema,
   getCommentsSchema,
   getVideoSchema,
 } from "../src/tools.js";
@@ -25,6 +27,30 @@ describe("tool schemas", () => {
         limit: 101,
       }).success,
     ).toBe(false);
+  });
+
+  it("requires an explicit, bounded page count for comment search", () => {
+    expect(
+      findCommentsSchema.safeParse({
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        matchTerms: ["source"],
+      }).success,
+    ).toBe(false);
+    expect(
+      findCommentsSchema.parse({
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        matchTerms: ["source"],
+        maxPages: 3,
+      }),
+    ).toMatchObject({ limit: 100, order: "relevance", includeReplies: false });
+  });
+
+  it("applies bounded channel upload defaults", () => {
+    expect(
+      getChannelVideosSchema.parse({
+        url: "https://youtube.com/@GoogleDevelopers",
+      }),
+    ).toMatchObject({ limit: 25 });
   });
 
   it("returns MCP-compatible validation errors without calling the client", async () => {
@@ -51,6 +77,19 @@ describe("tool schemas", () => {
       id: "dQw4w9WgXcQ",
       title: "Test video",
     });
+  });
+
+  it("does not call comment search for invalid input", async () => {
+    const client = { findComments: vi.fn() } as unknown as YoutubeClient;
+    const handlers = createToolHandlers(client);
+
+    const result = await handlers.findComments({
+      url: "https://youtu.be/dQw4w9WgXcQ",
+      matchTerms: ["source"],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(client.findComments).not.toHaveBeenCalled();
   });
 
   it("keeps the video schema minimal", () => {
