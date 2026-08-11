@@ -2,13 +2,14 @@
 
 ## Purpose
 
-This repository is a private, read-only YouTube MCP for public video context and bounded comment retrieval.
+This repository is a private, read-only YouTube MCP for public discovery, bounded comment retrieval, and local caption-track research.
 
 ## Working Rules
 
 - Keep the tool surface small and workflow-oriented.
-- Do not add POST, PUT, PATCH, DELETE, OAuth, persistence, caching, transcript extraction, or write actions without an explicit product decision.
+- Do not add POST, PUT, PATCH, DELETE, OAuth, persistence, caching, media downloads, ASR/Whisper fallback, or write actions without an explicit product decision.
 - Keep all YouTube Data API access in the centralized GET-only request client.
+- Keep `yt-dlp` caption extraction local, explicit, read-only, and separate from the Data API client. Never use it to download media or persist transcript data.
 - Preserve explicit pagination. Never crawl comment pages implicitly.
 - State the retrieved-page-only limit whenever local comment-term matching is used.
 - Keep API keys and tunnel credentials outside Git.

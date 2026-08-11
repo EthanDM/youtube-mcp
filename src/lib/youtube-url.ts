@@ -15,6 +15,11 @@ export type ParsedYoutubeChannelUrl = {
   canonicalUrl: string;
 };
 
+export type ParsedYoutubePlaylistUrl = {
+  playlistId: string;
+  canonicalUrl: string;
+};
+
 /** Parses only public YouTube URL forms supported by this MCP. */
 export function parseYoutubeUrl(value: string): ParsedYoutubeUrl {
   let url: URL;
@@ -76,6 +81,37 @@ export function parseYoutubeChannelUrl(value: string): ParsedYoutubeChannelUrl {
   throw invalidChannelUrl();
 }
 
+/** Parses public playlist URLs without accepting raw playlist identifiers. */
+export function parseYoutubePlaylistUrl(
+  value: string,
+): ParsedYoutubePlaylistUrl {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalidPlaylistUrl();
+  }
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    !isYoutubeHost(url.hostname.toLowerCase())
+  ) {
+    throw invalidPlaylistUrl();
+  }
+
+  if (url.pathname !== "/playlist" && url.pathname !== "/watch") {
+    throw invalidPlaylistUrl();
+  }
+  const playlistId = url.searchParams.get("list");
+  if (!playlistId || !/^[A-Za-z0-9_-]{10,200}$/.test(playlistId)) {
+    throw invalidPlaylistUrl();
+  }
+  return {
+    playlistId,
+    canonicalUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
+  };
+}
+
 function decodePathPart(value: string): string | undefined {
   try {
     return decodeURIComponent(value);
@@ -113,5 +149,12 @@ function invalidChannelUrl(): YoutubeMcpError {
   return new YoutubeMcpError(
     "Provide a supported YouTube channel URL using /channel/CHANNEL_ID or /@handle.",
     "invalid_youtube_channel_url",
+  );
+}
+
+function invalidPlaylistUrl(): YoutubeMcpError {
+  return new YoutubeMcpError(
+    "Provide a supported public YouTube playlist URL using /playlist?list=... or /watch?...&list=....",
+    "invalid_youtube_playlist_url",
   );
 }

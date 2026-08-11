@@ -5,16 +5,25 @@ import type {
   YoutubeChannelVideoPage,
   YoutubeCommentPage,
   YoutubeCommentSearchResult,
+  YoutubePlaylistItemPage,
   YoutubeVideo,
+  YoutubeVideoSearchPage,
 } from "../types.js";
-import { parseYoutubeChannelUrl, parseYoutubeUrl } from "./youtube-url.js";
+import {
+  parseYoutubeChannelUrl,
+  parseYoutubePlaylistUrl,
+  parseYoutubeUrl,
+} from "./youtube-url.js";
 import {
   normalizeChannel,
   normalizeCommentThread,
+  normalizePlaylist,
   normalizePlaylistItem,
+  normalizePublicPlaylistItem,
   normalizeVideo,
   type YoutubeChannelResource,
   type YoutubeCommentResource,
+  type YoutubePlaylistResource,
   type YoutubePlaylistItemResource,
   type YoutubeVideoResource,
 } from "./youtube-normalizers.js";
@@ -31,6 +40,11 @@ type CommentThreadsResponse = {
 type ChannelResponse = { items?: YoutubeChannelResource[] };
 type PlaylistItemsResponse = {
   items?: YoutubePlaylistItemResource[];
+  nextPageToken?: string;
+};
+type PlaylistsResponse = { items?: YoutubePlaylistResource[] };
+type SearchResponse = {
+  items?: Array<{ id?: { videoId?: string } }>;
   nextPageToken?: string;
 };
 
@@ -53,6 +67,19 @@ export type FindCommentsInput = Omit<
 };
 
 export type GetChannelVideosInput = {
+  url: string;
+  limit: number;
+  pageToken?: string;
+};
+
+export type SearchVideosInput = {
+  query: string;
+  limit: number;
+  pageToken?: string;
+  order: "relevance" | "date" | "viewCount";
+};
+
+export type GetPlaylistItemsInput = {
   url: string;
   limit: number;
   pageToken?: string;
@@ -205,6 +232,99 @@ export class YoutubeClient {
       videos,
       next_page_token: response.nextPageToken,
       fetched_count: videos.length,
+    };
+  }
+
+  async searchVideos(
+    input: SearchVideosInput,
+  ): Promise<YoutubeVideoSearchPage> {
+    const search = await this.requestClient.get<SearchResponse>(
+      "/search",
+      new URLSearchParams({
+        part: "id",
+        q: input.query,
+        type: "video",
+        maxResults: String(input.limit),
+        order: input.order,
+        ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+      }),
+    );
+    const ids = (search.items || [])
+      .map((item) => item.id?.videoId)
+      .filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      return {
+        query: input.query,
+        videos: [],
+        next_page_token: search.nextPageToken,
+        fetched_count: 0,
+        returned_count: 0,
+      };
+    }
+    const detail = await this.requestClient.get<VideoResponse>(
+      "/videos",
+      new URLSearchParams({
+        part: "snippet,contentDetails,statistics,liveStreamingDetails,status",
+        id: ids.join(","),
+      }),
+    );
+    const byId = new Map(
+      (detail.items || []).map((video) => [video.id, video]),
+    );
+    const videos = ids.flatMap((id) => {
+      const video = byId.get(id);
+      return video
+        ? [normalizeVideo(video, `https://www.youtube.com/watch?v=${id}`)]
+        : [];
+    });
+    return {
+      query: input.query,
+      videos,
+      next_page_token: search.nextPageToken,
+      fetched_count: ids.length,
+      returned_count: videos.length,
+    };
+  }
+
+  async getPlaylistItems(
+    input: GetPlaylistItemsInput,
+  ): Promise<YoutubePlaylistItemPage> {
+    const parsed = parseYoutubePlaylistUrl(input.url);
+    const playlists = await this.requestClient.get<PlaylistsResponse>(
+      "/playlists",
+      new URLSearchParams({
+        part: "snippet,contentDetails",
+        id: parsed.playlistId,
+      }),
+    );
+    const playlist = playlists.items?.[0];
+    if (!playlist) {
+      throw new YoutubeMcpError(
+        "The playlist was not found or is not publicly available.",
+        "playlist_not_found",
+      );
+    }
+    const response = await this.requestClient.get<PlaylistItemsResponse>(
+      "/playlistItems",
+      new URLSearchParams({
+        part: "snippet,contentDetails",
+        playlistId: parsed.playlistId,
+        maxResults: String(input.limit),
+        ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+      }),
+    );
+    const items = (response.items || []).map(normalizePublicPlaylistItem);
+    if (items.length === 0) {
+      throw new YoutubeMcpError(
+        "The playlist has no readable public items.",
+        "playlist_items_unavailable",
+      );
+    }
+    return {
+      playlist: normalizePlaylist(playlist),
+      items,
+      next_page_token: response.nextPageToken,
+      fetched_count: items.length,
     };
   }
 

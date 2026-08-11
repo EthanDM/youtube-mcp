@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { formatErrorMessage } from "./errors.js";
+import type { TranscriptClient } from "./lib/transcript.js";
 import type { YoutubeClient } from "./lib/youtube.js";
 
 const urlSchema = z.string().url();
@@ -39,7 +40,32 @@ export const findCommentsSchema = z.object({
   includeReplies: z.boolean().default(false),
 });
 
-export function createToolHandlers(client: YoutubeClient) {
+export const searchVideosSchema = z.object({
+  query: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(25).default(10),
+  pageToken: pageTokenSchema,
+  order: z.enum(["relevance", "date", "viewCount"]).default("relevance"),
+});
+
+export const getPlaylistItemsSchema = z.object({
+  url: urlSchema,
+  limit: z.number().int().min(1).max(50).default(25),
+  pageToken: pageTokenSchema,
+});
+
+export const getTranscriptLanguagesSchema = z.object({ url: urlSchema });
+
+export const getTranscriptSchema = z.object({
+  url: urlSchema,
+  language: z.string().trim().min(1).max(50).optional(),
+  cursor: pageTokenSchema,
+  maxSegments: z.number().int().min(1).max(500).default(250),
+});
+
+export function createToolHandlers(
+  client: YoutubeClient,
+  transcriptClient: TranscriptClient,
+) {
   return {
     getVideo: async (input: unknown) => {
       try {
@@ -77,6 +103,38 @@ export function createToolHandlers(client: YoutubeClient) {
       try {
         const parsed = getChannelVideosSchema.parse(input);
         return toolSuccess(await client.getChannelVideos(parsed));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    searchVideos: async (input: unknown) => {
+      try {
+        const parsed = searchVideosSchema.parse(input);
+        return toolSuccess(await client.searchVideos(parsed));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    getPlaylistItems: async (input: unknown) => {
+      try {
+        const parsed = getPlaylistItemsSchema.parse(input);
+        return toolSuccess(await client.getPlaylistItems(parsed));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    getTranscriptLanguages: async (input: unknown) => {
+      try {
+        const parsed = getTranscriptLanguagesSchema.parse(input);
+        return toolSuccess(await transcriptClient.listLanguages(parsed.url));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    getTranscript: async (input: unknown) => {
+      try {
+        const parsed = getTranscriptSchema.parse(input);
+        return toolSuccess(await transcriptClient.getTranscript(parsed));
       } catch (error) {
         return toolError(error);
       }

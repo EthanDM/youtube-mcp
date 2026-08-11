@@ -1,5 +1,6 @@
 import { YOUTUBE_API_BASE_URL, type YoutubeConfig } from "../config.js";
 import { YoutubeApiError } from "../errors.js";
+import { YoutubeMcpError } from "../errors.js";
 
 export type FetchLike = typeof fetch;
 
@@ -17,6 +18,12 @@ export class YoutubeRequestClient {
     query: URLSearchParams = new URLSearchParams(),
     retriesRemaining = 2,
   ): Promise<T> {
+    if (!this.config.apiKey) {
+      throw new YoutubeMcpError(
+        "YOUTUBE_API_KEY is required for public YouTube Data API tools. Copy .env.example to .env and add a restricted YouTube Data API key.",
+        "auth_missing_api_key",
+      );
+    }
     query.set("key", this.config.apiKey);
     const response = await this.fetchImpl(
       `${YOUTUBE_API_BASE_URL}${path}?${query}`,

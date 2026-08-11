@@ -3,11 +3,13 @@ import "dotenv/config";
 import { getYoutubeConfig } from "./config.js";
 import { YoutubeApiError } from "./errors.js";
 import { YoutubeClient } from "./lib/youtube.js";
+import { TranscriptClient } from "./lib/transcript.js";
 
 const defaultSmokeUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 async function main(): Promise<void> {
   const client = new YoutubeClient(getYoutubeConfig());
+  const transcriptClient = new TranscriptClient(getYoutubeConfig().ytDlpPath);
   const videoUrl = process.env.YOUTUBE_SMOKE_URL?.trim() || defaultSmokeUrl;
   const video = await client.getVideo(videoUrl);
   if (!video.id || !video.title)
@@ -32,9 +34,21 @@ async function main(): Promise<void> {
       console.log(
         `Smoke passed: ${video.title}; default video has comments disabled.`,
       );
-      return;
+    } else {
+      throw error;
     }
-    throw error;
+  }
+
+  const transcriptUrl = process.env.YOUTUBE_SMOKE_TRANSCRIPT_URL?.trim();
+  if (transcriptUrl) {
+    const transcript = await transcriptClient.getTranscript({
+      url: transcriptUrl,
+      maxSegments: 1,
+    });
+    if (transcript.transcript.returned_segments < 1) {
+      throw new Error("Transcript smoke response had no caption segments.");
+    }
+    console.log("Transcript smoke passed.");
   }
 }
 

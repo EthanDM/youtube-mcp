@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { YoutubeClient } from "../src/lib/youtube.js";
+import type { TranscriptClient } from "../src/lib/transcript.js";
 import {
   createToolHandlers,
   findCommentsSchema,
   getChannelVideosSchema,
   getCommentsSchema,
+  getPlaylistItemsSchema,
+  getTranscriptSchema,
   getVideoSchema,
+  searchVideosSchema,
 } from "../src/tools.js";
+
+const transcriptClient = {} as TranscriptClient;
 
 describe("tool schemas", () => {
   it("applies safe comment defaults", () => {
@@ -55,7 +61,7 @@ describe("tool schemas", () => {
 
   it("returns MCP-compatible validation errors without calling the client", async () => {
     const client = { getVideo: vi.fn() } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client);
+    const handlers = createToolHandlers(client, transcriptClient);
 
     const result = await handlers.getVideo({ url: "not-a-url" });
 
@@ -67,7 +73,7 @@ describe("tool schemas", () => {
     const client = {
       getVideo: vi.fn(async () => ({ id: "dQw4w9WgXcQ", title: "Test video" })),
     } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client);
+    const handlers = createToolHandlers(client, transcriptClient);
 
     const result = await handlers.getVideo({
       url: "https://youtu.be/dQw4w9WgXcQ",
@@ -81,7 +87,7 @@ describe("tool schemas", () => {
 
   it("does not call comment search for invalid input", async () => {
     const client = { findComments: vi.fn() } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client);
+    const handlers = createToolHandlers(client, transcriptClient);
 
     const result = await handlers.findComments({
       url: "https://youtu.be/dQw4w9WgXcQ",
@@ -98,5 +104,34 @@ describe("tool schemas", () => {
     ).toEqual({
       url: "https://youtu.be/dQw4w9WgXcQ",
     });
+  });
+
+  it("applies bounded public discovery defaults", () => {
+    expect(searchVideosSchema.parse({ query: "research" })).toMatchObject({
+      limit: 10,
+      order: "relevance",
+    });
+    expect(
+      searchVideosSchema.safeParse({ query: "research", limit: 26 }).success,
+    ).toBe(false);
+    expect(
+      getPlaylistItemsSchema.parse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+      }),
+    ).toMatchObject({ limit: 25 });
+  });
+
+  it("applies bounded transcript paging defaults", () => {
+    expect(
+      getTranscriptSchema.parse({ url: "https://youtu.be/dQw4w9WgXcQ" }),
+    ).toMatchObject({
+      maxSegments: 250,
+    });
+    expect(
+      getTranscriptSchema.safeParse({
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        maxSegments: 501,
+      }).success,
+    ).toBe(false);
   });
 });

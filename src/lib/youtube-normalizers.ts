@@ -2,6 +2,8 @@ import type {
   YoutubeChannel,
   YoutubeChannelVideo,
   YoutubeComment,
+  YoutubePlaylist,
+  YoutubePlaylistItem,
   YoutubeThumbnail,
   YoutubeVideo,
 } from "../types.js";
@@ -64,6 +66,7 @@ export type YoutubeChannelResource = {
 };
 
 export type YoutubePlaylistItemResource = {
+  id: string;
   snippet: {
     title: string;
     description?: string;
@@ -73,8 +76,25 @@ export type YoutubePlaylistItemResource = {
       { url: string; width?: number; height?: number }
     >;
     resourceId?: { videoId?: string };
+    position?: number;
   };
   contentDetails?: { videoId?: string; videoPublishedAt?: string };
+};
+
+export type YoutubePlaylistResource = {
+  id: string;
+  snippet: {
+    title: string;
+    description?: string;
+    channelId: string;
+    channelTitle: string;
+    publishedAt: string;
+    thumbnails?: Record<
+      string,
+      { url: string; width?: number; height?: number }
+    >;
+  };
+  contentDetails?: { itemCount?: number };
 };
 
 type YoutubeCommentSnippet = {
@@ -182,6 +202,42 @@ export function normalizePlaylistItem(
       resource.contentDetails?.videoPublishedAt ||
       resource.snippet.publishedAt ||
       "",
+    thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
+  };
+}
+
+export function normalizePlaylist(
+  resource: YoutubePlaylistResource,
+): YoutubePlaylist {
+  return {
+    id: resource.id,
+    url: `https://www.youtube.com/playlist?list=${resource.id}`,
+    title: resource.snippet.title,
+    description: resource.snippet.description || "",
+    channel_id: resource.snippet.channelId,
+    channel_name: resource.snippet.channelTitle,
+    published_at: resource.snippet.publishedAt,
+    item_count: resource.contentDetails?.itemCount,
+    thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
+  };
+}
+
+export function normalizePublicPlaylistItem(
+  resource: YoutubePlaylistItemResource,
+): YoutubePlaylistItem {
+  const videoId =
+    resource.contentDetails?.videoId || resource.snippet.resourceId?.videoId;
+  return {
+    playlist_item_id: resource.id,
+    video_id: videoId,
+    url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : undefined,
+    title: resource.snippet.title,
+    description: resource.snippet.description || "",
+    published_at:
+      resource.contentDetails?.videoPublishedAt ||
+      resource.snippet.publishedAt ||
+      "",
+    position: resource.snippet.position || 0,
     thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
   };
 }

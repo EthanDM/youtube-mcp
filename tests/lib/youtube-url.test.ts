@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseYoutubeChannelUrl,
+  parseYoutubePlaylistUrl,
   parseYoutubeUrl,
 } from "../../src/lib/youtube-url.js";
 
@@ -65,5 +66,32 @@ describe("parseYoutubeChannelUrl", () => {
     expect(() => parseYoutubeChannelUrl(url)).toThrow(
       "Provide a supported YouTube channel URL",
     );
+  });
+});
+
+describe("parseYoutubePlaylistUrl", () => {
+  it("parses canonical playlist and watch URLs", () => {
+    expect(
+      parseYoutubePlaylistUrl(
+        "https://www.youtube.com/playlist?list=PL123456789",
+      ),
+    ).toEqual({
+      playlistId: "PL123456789",
+      canonicalUrl: "https://www.youtube.com/playlist?list=PL123456789",
+    });
+    expect(
+      parseYoutubePlaylistUrl(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123456789",
+      ),
+    ).toMatchObject({ playlistId: "PL123456789" });
+  });
+
+  it("rejects raw IDs and unsupported URLs", () => {
+    expect(() => parseYoutubePlaylistUrl("PL123456789")).toThrow(
+      "playlist URL",
+    );
+    expect(() =>
+      parseYoutubePlaylistUrl("https://youtu.be/dQw4w9WgXcQ"),
+    ).toThrow("playlist URL");
   });
 });

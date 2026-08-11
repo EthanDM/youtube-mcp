@@ -197,6 +197,129 @@ describe("YoutubeClient", () => {
       fetched_count: 1,
     });
   });
+
+  it("searches one explicit page and preserves search ranking after enrichment", async () => {
+    const client = new YoutubeClient(
+      config,
+      createRouterFetchMock({
+        "GET /youtube/v3/search?": (url) => {
+          expect(url.searchParams.get("q")).toBe("test query");
+          expect(url.searchParams.get("type")).toBe("video");
+          expect(url.searchParams.get("maxResults")).toBe("2");
+          return jsonResponse({
+            nextPageToken: "next-search",
+            items: [
+              { id: { videoId: "second" } },
+              { id: { videoId: "first" } },
+            ],
+          });
+        },
+        "GET /youtube/v3/videos?": (url) => {
+          expect(url.searchParams.get("id")).toBe("second,first");
+          return jsonResponse({
+            items: [
+              { ...videoResource(), id: "first" },
+              { ...videoResource(), id: "second" },
+            ],
+          });
+        },
+      }),
+    );
+    await expect(
+      client.searchVideos({ query: "test query", limit: 2, order: "date" }),
+    ).resolves.toMatchObject({
+      query: "test query",
+      videos: [{ id: "second" }, { id: "first" }],
+      next_page_token: "next-search",
+      fetched_count: 2,
+      returned_count: 2,
+    });
+  });
+
+  it("gets one public playlist page with playlist item IDs and positions", async () => {
+    const client = new YoutubeClient(
+      config,
+      createRouterFetchMock({
+        "GET /youtube/v3/playlists?": (url) => {
+          expect(url.searchParams.get("id")).toBe("PL123456789");
+          return jsonResponse({
+            items: [
+              {
+                id: "PL123456789",
+                snippet: {
+                  title: "Test playlist",
+                  description: "Description",
+                  channelId: "channel-1",
+                  channelTitle: "Test channel",
+                  publishedAt: "2020-01-01T00:00:00Z",
+                },
+                contentDetails: { itemCount: 1 },
+              },
+            ],
+          });
+        },
+        "GET /youtube/v3/playlistItems?": () =>
+          jsonResponse({
+            items: [
+              {
+                id: "playlist-item-1",
+                snippet: {
+                  title: "Playlist video",
+                  position: 3,
+                  resourceId: { videoId: "dQw4w9WgXcQ" },
+                },
+                contentDetails: { videoId: "dQw4w9WgXcQ" },
+              },
+            ],
+          }),
+      }),
+    );
+    await expect(
+      client.getPlaylistItems({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      playlist: { id: "PL123456789", item_count: 1 },
+      items: [
+        {
+          playlist_item_id: "playlist-item-1",
+          video_id: "dQw4w9WgXcQ",
+          position: 3,
+        },
+      ],
+    });
+  });
+
+  it("rejects playlists without readable public items", async () => {
+    const client = new YoutubeClient(
+      config,
+      createRouterFetchMock({
+        "GET /youtube/v3/playlists?": () =>
+          jsonResponse({
+            items: [
+              {
+                id: "PL123456789",
+                snippet: {
+                  title: "Empty playlist",
+                  channelId: "channel-1",
+                  channelTitle: "Test channel",
+                  publishedAt: "2020-01-01T00:00:00Z",
+                },
+              },
+            ],
+          }),
+        "GET /youtube/v3/playlistItems?": () => jsonResponse({ items: [] }),
+      }),
+    );
+
+    await expect(
+      client.getPlaylistItems({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        limit: 1,
+      }),
+    ).rejects.toMatchObject({ code: "playlist_items_unavailable" });
+  });
 });
 
 describe("YoutubeRequestClient", () => {

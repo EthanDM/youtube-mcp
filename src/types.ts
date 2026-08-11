@@ -83,6 +83,80 @@ export type YoutubeChannelVideoPage = {
   fetched_count: number;
 };
 
+export type YoutubeVideoSearchPage = {
+  query: string;
+  videos: YoutubeVideo[];
+  next_page_token?: string;
+  fetched_count: number;
+  returned_count: number;
+};
+
+export type YoutubePlaylist = {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  channel_id: string;
+  channel_name: string;
+  published_at: string;
+  item_count?: number;
+  thumbnails: Record<string, YoutubeThumbnail>;
+};
+
+export type YoutubePlaylistItem = {
+  playlist_item_id: string;
+  video_id?: string;
+  url?: string;
+  title: string;
+  description: string;
+  published_at: string;
+  position: number;
+  thumbnails: Record<string, YoutubeThumbnail>;
+};
+
+export type YoutubePlaylistItemPage = {
+  playlist: YoutubePlaylist;
+  items: YoutubePlaylistItem[];
+  next_page_token?: string;
+  fetched_count: number;
+};
+
+export type TranscriptTrack = {
+  language: string;
+  display_name?: string;
+  track_type: "creator" | "automatic";
+  formats: string[];
+};
+
+export type YoutubeTranscriptLanguageList = {
+  video: Pick<YoutubeVideo, "id" | "url" | "title">;
+  tracks: TranscriptTrack[];
+};
+
+export type YoutubeTranscriptSegment = {
+  start_seconds: number;
+  duration_seconds: number;
+  text: string;
+};
+
+export type YoutubeTranscriptPage = {
+  video: Pick<
+    YoutubeVideo,
+    "id" | "url" | "title" | "channel_name" | "duration_iso8601"
+  >;
+  transcript: {
+    language: string;
+    track_type: "creator" | "automatic";
+    display_name?: string;
+    segments: YoutubeTranscriptSegment[];
+    text: string;
+    returned_segments: number;
+    total_segments: number;
+    complete: boolean;
+    next_cursor?: string;
+  };
+};
+
 export type YoutubeCommentSearchResult = {
   video: Pick<YoutubeVideo, "id" | "url">;
   comments: YoutubeComment[];
