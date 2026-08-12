@@ -1,6 +1,8 @@
 # youtube-mcp
 
-Private YouTube MCP server for Codex and ChatGPT. It turns public video, channel, and playlist URLs into structured context, bounded public-comment retrieval, timestamped caption research, and owned-playlist management.
+Local YouTube MCP server for Codex. It turns public video, channel, and playlist URLs into structured context, bounded public-comment retrieval, timestamped caption research, and owned-playlist management.
+
+The repository is public, but the server is intentionally local and single-user: bring your own Google Cloud credentials, authenticate your own YouTube channel, and keep credentials and tokens on your machine. It is not a hosted service or a multi-user connector.
 
 ## Tools
 
@@ -29,13 +31,14 @@ Public research tools remain read-only. Authenticated V2 tools manage only playl
 - Node.js 22+
 - `pnpm`
 - A Google Cloud project with YouTube Data API v3 enabled
-- A YouTube Data API key restricted to that API
+- A restricted YouTube Data API key for public read tools
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for transcript tools (or `YT_DLP_PATH`)
-- OpenAI Secure MCP Tunnel access and ChatGPT Developer Mode access
+
+Authenticated playlist tools additionally require a Google OAuth desktop client. ChatGPT access through an OpenAI Secure MCP Tunnel is optional; it is not needed for local Codex use.
 
 ## Authenticated playlist setup
 
-Create a Google OAuth desktop client with the YouTube Data API enabled, then configure the OAuth variables in `.env`. Run the local PKCE flow once:
+In Google Cloud, enable YouTube Data API v3, create an OAuth **Desktop app** client, and configure the loopback redirect URI from `YOUTUBE_REDIRECT_URI` (by default `http://127.0.0.1:8787/callback`) as required by that client configuration. Configure its client ID and optional client secret in `.env`, then run the local PKCE flow once:
 
 ```bash
 pnpm auth:login
@@ -67,6 +70,18 @@ pnpm start
 
 For contributor development only, run `pnpm dev`.
 
+## Codex setup
+
+Build the server, then add a local MCP entry to your Codex configuration:
+
+```toml
+[mcp_servers.youtube]
+command = "node"
+args = ["--env-file=/absolute/path/to/youtube-mcp/.env", "/absolute/path/to/youtube-mcp/dist/server.js"]
+```
+
+Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after source changes before using the stable server.
+
 ## Tool behavior
 
 `youtube_get_video` accepts normal watch, Shorts, live, embed, and `youtu.be` URLs. It returns public metadata only.
@@ -87,11 +102,17 @@ For contributor development only, run `pnpm dev`.
 
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. Availability can change and is not guaranteed for every public video.
 
-## Private ChatGPT connection
+## Optional ChatGPT connection
 
 Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run `tunnel-client` where it can reach the built stdio server, and register the tunnel endpoint in ChatGPT Developer Mode. The tunnel lets ChatGPT reach a private MCP server without a public listener. Follow the current [Secure MCP Tunnel documentation](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) for tunnel creation and `tunnel-client` configuration.
 
-Do not commit the Google API key, OpenAI runtime key, or generated tunnel configuration.
+Do not commit the Google API key, OAuth client credentials, OpenAI runtime key, generated tunnel configuration, or local token file.
+
+## Privacy and API terms
+
+This server runs locally. It does not include telemetry, a hosted backend, or a shared credential service. OAuth tokens are stored only in the local token file described above, and YouTube API requests use the credentials configured by the local user.
+
+Users are responsible for their own Google Cloud projects and compliance with the [YouTube API Services Terms of Service](https://developers.google.com/youtube/terms/api-services-terms-of-service) and [YouTube Developer Policies](https://developers.google.com/youtube/terms/developer-policies). Caption tools use `yt-dlp` only to retrieve YouTube-exposed caption tracks; caption availability and extraction behavior can change without notice.
 
 ## Verification
 

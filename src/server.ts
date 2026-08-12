@@ -30,9 +30,9 @@ import {
   updatePlaylistInputSchema,
 } from "./tools.js";
 
-/** Local stdio MCP exposing deliberately read-only YouTube research tools. */
+/** Local stdio MCP for bounded YouTube research and owned-playlist management. */
 const config = getYoutubeConfig();
-const server = new McpServer({ name: "youtube-mcp", version: "0.2.0" });
+const server = new McpServer({ name: "youtube-mcp", version: "0.3.0" });
 const handlers = createToolHandlers(
   new YoutubeClient(config),
   new TranscriptClient(config.ytDlpPath),

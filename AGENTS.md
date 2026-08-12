@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This repository is a private YouTube MCP for public discovery, bounded comment retrieval, local caption-track research, and explicitly scoped owned-playlist management.
+This repository is a local YouTube MCP for public discovery, bounded comment retrieval, local caption-track research, and explicitly scoped owned-playlist management. It is published as source code, but each installation uses its own local credentials and OAuth session.
 
 ## Working Rules
 
 - Keep the tool surface small and workflow-oriented.
 - Do not add account-library tools, media downloads, ASR/Whisper fallback, caching, persistence beyond the local OAuth token store, or write actions outside owned-playlist management without an explicit product decision.
-- Keep all YouTube Data API access in the centralized GET-only request client.
+- Keep API-key public reads in the centralized GET-only request client. Keep OAuth-authenticated playlist reads and writes in the separate authenticated request client.
 - Keep `yt-dlp` caption extraction local, explicit, read-only, and separate from the Data API client. Never use it to download media or persist transcript data.
 - Keep OAuth interactive and local through the auth CLI. Store tokens only in the private user-scoped token file; never expose them through MCP tools or Git.
 - Authenticate playlist writes with OAuth and reject playlists not owned by the resolved authenticated channel. Require `confirm: true` for removal and reordering.
