@@ -22,6 +22,14 @@ export class YoutubeApiError extends YoutubeMcpError {
   }
 }
 
+/** Returned for Google OAuth failures before a YouTube API request is made. */
+export class YoutubeAuthError extends YoutubeMcpError {
+  constructor(message: string, code: string) {
+    super(message, code);
+    this.name = "YoutubeAuthError";
+  }
+}
+
 export function formatErrorMessage(error: unknown): string {
   if (error instanceof ZodError) {
     return error.issues

@@ -1,9 +1,13 @@
 import "dotenv/config";
 
-import { getYoutubeConfig } from "./config.js";
+import { getYoutubeConfig, getYoutubeOAuthConfig } from "./config.js";
+import { YoutubeOAuthClient } from "./auth/oauth.js";
+import { YoutubeTokenStore } from "./auth/token-store.js";
 import { YoutubeApiError } from "./errors.js";
 import { YoutubeClient } from "./lib/youtube.js";
 import { TranscriptClient } from "./lib/transcript.js";
+import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
+import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 
 const defaultSmokeUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
@@ -49,6 +53,22 @@ async function main(): Promise<void> {
       throw new Error("Transcript smoke response had no caption segments.");
     }
     console.log("Transcript smoke passed.");
+  }
+
+  const ownedPlaylistUrl = process.env.YOUTUBE_SMOKE_OWNED_PLAYLIST_URL?.trim();
+  if (ownedPlaylistUrl) {
+    const oauthConfig = getYoutubeOAuthConfig();
+    const ownedClient = new AuthenticatedYoutubeClient(
+      new YoutubeAuthRequestClient(
+        new YoutubeTokenStore(oauthConfig.tokenFile),
+        new YoutubeOAuthClient(oauthConfig),
+      ),
+    );
+    await ownedClient.getOwnedPlaylistItems({
+      url: ownedPlaylistUrl,
+      limit: 1,
+    });
+    console.log("Authenticated playlist smoke passed.");
   }
 }
 

@@ -3,8 +3,12 @@ import "dotenv/config";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { getYoutubeConfig } from "./config.js";
+import { getYoutubeConfig, getYoutubeOAuthConfig } from "./config.js";
+import { YoutubeOAuthClient } from "./auth/oauth.js";
+import { YoutubeTokenStore } from "./auth/token-store.js";
 import { TranscriptClient } from "./lib/transcript.js";
+import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
+import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 import { YoutubeClient } from "./lib/youtube.js";
 import {
   createToolHandlers,
@@ -13,10 +17,17 @@ import {
   getChannelVideosSchema,
   getCommentsSchema,
   getVideoSchema,
+  addPlaylistVideoSchema,
+  createPlaylistSchema,
+  getOwnedPlaylistItemsSchema,
+  listOwnedPlaylistsSchema,
+  removePlaylistItemSchema,
+  reorderPlaylistItemSchema,
   getPlaylistItemsSchema,
   getTranscriptLanguagesSchema,
   getTranscriptSchema,
   searchVideosSchema,
+  updatePlaylistInputSchema,
 } from "./tools.js";
 
 /** Local stdio MCP exposing deliberately read-only YouTube research tools. */
@@ -25,6 +36,104 @@ const server = new McpServer({ name: "youtube-mcp", version: "0.2.0" });
 const handlers = createToolHandlers(
   new YoutubeClient(config),
   new TranscriptClient(config.ytDlpPath),
+  () => {
+    const oauthConfig = getYoutubeOAuthConfig();
+    const tokenStore = new YoutubeTokenStore(oauthConfig.tokenFile);
+    return new AuthenticatedYoutubeClient(
+      new YoutubeAuthRequestClient(
+        tokenStore,
+        new YoutubeOAuthClient(oauthConfig),
+      ),
+    );
+  },
+);
+
+server.registerTool(
+  "youtube_get_authenticated_channel",
+  {
+    title: "Get Authenticated YouTube Channel",
+    description:
+      "Gets the YouTube channel attached to the local OAuth session.",
+    inputSchema: {},
+  },
+  handlers.getAuthenticatedChannel,
+);
+
+server.registerTool(
+  "youtube_list_owned_playlists",
+  {
+    title: "List Owned YouTube Playlists",
+    description:
+      "Gets one explicit page of playlists owned by the authenticated channel.",
+    inputSchema: listOwnedPlaylistsSchema.shape,
+  },
+  handlers.listOwnedPlaylists,
+);
+
+server.registerTool(
+  "youtube_get_owned_playlist_items",
+  {
+    title: "Get Owned YouTube Playlist Items",
+    description:
+      "Gets one explicit item page from a playlist owned by the authenticated channel.",
+    inputSchema: getOwnedPlaylistItemsSchema.shape,
+  },
+  handlers.getOwnedPlaylistItems,
+);
+
+server.registerTool(
+  "youtube_create_playlist",
+  {
+    title: "Create YouTube Playlist",
+    description:
+      "Creates a playlist owned by the authenticated channel. New playlists default to private.",
+    inputSchema: createPlaylistSchema.shape,
+  },
+  handlers.createPlaylist,
+);
+
+server.registerTool(
+  "youtube_update_playlist",
+  {
+    title: "Update YouTube Playlist",
+    description:
+      "Updates metadata on a playlist owned by the authenticated channel.",
+    inputSchema: updatePlaylistInputSchema.shape,
+  },
+  handlers.updatePlaylist,
+);
+
+server.registerTool(
+  "youtube_add_playlist_video",
+  {
+    title: "Add Video to YouTube Playlist",
+    description:
+      "Adds a public video to a playlist owned by the authenticated channel.",
+    inputSchema: addPlaylistVideoSchema.shape,
+  },
+  handlers.addPlaylistVideo,
+);
+
+server.registerTool(
+  "youtube_remove_playlist_item",
+  {
+    title: "Remove YouTube Playlist Item",
+    description:
+      "Removes one exact item from an owned playlist. Requires confirm: true.",
+    inputSchema: removePlaylistItemSchema.shape,
+  },
+  handlers.removePlaylistItem,
+);
+
+server.registerTool(
+  "youtube_reorder_playlist_item",
+  {
+    title: "Reorder YouTube Playlist Item",
+    description:
+      "Moves one exact item in an owned playlist. Requires confirm: true.",
+    inputSchema: reorderPlaylistItemSchema.shape,
+  },
+  handlers.reorderPlaylistItem,
 );
 
 server.registerTool(

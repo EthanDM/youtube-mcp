@@ -68,6 +68,7 @@ export type YoutubeChannelResource = {
 export type YoutubePlaylistItemResource = {
   id: string;
   snippet: {
+    playlistId?: string;
     title: string;
     description?: string;
     publishedAt?: string;
@@ -95,6 +96,7 @@ export type YoutubePlaylistResource = {
     >;
   };
   contentDetails?: { itemCount?: number };
+  status?: { privacyStatus?: "private" | "unlisted" | "public" };
 };
 
 type YoutubeCommentSnippet = {
@@ -218,6 +220,7 @@ export function normalizePlaylist(
     channel_name: resource.snippet.channelTitle,
     published_at: resource.snippet.publishedAt,
     item_count: resource.contentDetails?.itemCount,
+    privacy_status: resource.status?.privacyStatus,
     thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
   };
 }

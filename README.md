@@ -1,6 +1,6 @@
 # youtube-mcp
 
-Private, read-only YouTube MCP server for Codex and ChatGPT. It turns public video, channel, and playlist URLs into structured context, bounded public-comment retrieval, and timestamped caption research.
+Private YouTube MCP server for Codex and ChatGPT. It turns public video, channel, and playlist URLs into structured context, bounded public-comment retrieval, timestamped caption research, and owned-playlist management.
 
 ## Tools
 
@@ -13,8 +13,16 @@ Private, read-only YouTube MCP server for Codex and ChatGPT. It turns public vid
 - `youtube_get_playlist_items`
 - `youtube_list_transcript_languages`
 - `youtube_get_transcript`
+- `youtube_get_authenticated_channel`
+- `youtube_list_owned_playlists`
+- `youtube_get_owned_playlist_items`
+- `youtube_create_playlist`
+- `youtube_update_playlist`
+- `youtube_add_playlist_video`
+- `youtube_remove_playlist_item`
+- `youtube_reorder_playlist_item`
 
-The server does not expose OAuth, account access, caching, persistence, media downloads, ASR generation, or any write action.
+Public research tools remain read-only. Authenticated V2 tools manage only playlists owned by the locally authenticated channel; the server does not expose account-library reads, media downloads, ASR generation, or background processing.
 
 ## Requirements
 
@@ -24,6 +32,21 @@ The server does not expose OAuth, account access, caching, persistence, media do
 - A YouTube Data API key restricted to that API
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on `PATH` for transcript tools (or `YT_DLP_PATH`)
 - OpenAI Secure MCP Tunnel access and ChatGPT Developer Mode access
+
+## Authenticated playlist setup
+
+Create a Google OAuth desktop client with the YouTube Data API enabled, then configure the OAuth variables in `.env`. Run the local PKCE flow once:
+
+```bash
+pnpm auth:login
+pnpm auth:status
+```
+
+Tokens are saved outside the repository at `~/.config/youtube-mcp/tokens.json` with private filesystem permissions. `pnpm auth:logout` revokes the local session when possible and removes that file.
+
+`youtube_list_owned_playlists` and `youtube_get_owned_playlist_items` use explicit pagination. `youtube_create_playlist` defaults to private. Update and add operations apply directly; removal and reorder require `confirm: true`. Only playlists owned by the authenticated channel can be read through the owned workflow or changed.
+
+Set `YOUTUBE_SMOKE_OWNED_PLAYLIST_URL` only for a private test playlist you own to add an authenticated, read-only ownership smoke check. It does not create, update, add, remove, or reorder items.
 
 ## Setup
 
@@ -79,6 +102,7 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm transcript:doctor
+pnpm auth:status
 pnpm smoke
 ```
 

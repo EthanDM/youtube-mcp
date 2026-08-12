@@ -1,10 +1,13 @@
 {
   "name": "youtube-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "auth:login": "tsx src/auth/login.ts",
+    "auth:logout": "tsx src/auth/logout.ts",
+    "auth:status": "tsx src/auth/status.ts",
     "dev": "tsx watch src/server.ts",
     "format": "prettier . --write",
     "format:check": "prettier . --check",

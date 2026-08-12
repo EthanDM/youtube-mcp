@@ -100,7 +100,14 @@ export type YoutubePlaylist = {
   channel_name: string;
   published_at: string;
   item_count?: number;
+  privacy_status?: "private" | "unlisted" | "public";
   thumbnails: Record<string, YoutubeThumbnail>;
+};
+
+export type YoutubeOwnedPlaylistPage = {
+  playlists: YoutubePlaylist[];
+  next_page_token?: string;
+  fetched_count: number;
 };
 
 export type YoutubePlaylistItem = {

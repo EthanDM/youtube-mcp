@@ -11,9 +11,14 @@ import {
   getTranscriptSchema,
   getVideoSchema,
   searchVideosSchema,
+  createPlaylistSchema,
+  removePlaylistItemSchema,
+  reorderPlaylistItemSchema,
 } from "../src/tools.js";
 
 const transcriptClient = {} as TranscriptClient;
+const authenticatedClient = () =>
+  ({}) as import("../src/lib/youtube-auth.js").AuthenticatedYoutubeClient;
 
 describe("tool schemas", () => {
   it("applies safe comment defaults", () => {
@@ -61,7 +66,11 @@ describe("tool schemas", () => {
 
   it("returns MCP-compatible validation errors without calling the client", async () => {
     const client = { getVideo: vi.fn() } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client, transcriptClient);
+    const handlers = createToolHandlers(
+      client,
+      transcriptClient,
+      authenticatedClient,
+    );
 
     const result = await handlers.getVideo({ url: "not-a-url" });
 
@@ -73,7 +82,11 @@ describe("tool schemas", () => {
     const client = {
       getVideo: vi.fn(async () => ({ id: "dQw4w9WgXcQ", title: "Test video" })),
     } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client, transcriptClient);
+    const handlers = createToolHandlers(
+      client,
+      transcriptClient,
+      authenticatedClient,
+    );
 
     const result = await handlers.getVideo({
       url: "https://youtu.be/dQw4w9WgXcQ",
@@ -87,7 +100,11 @@ describe("tool schemas", () => {
 
   it("does not call comment search for invalid input", async () => {
     const client = { findComments: vi.fn() } as unknown as YoutubeClient;
-    const handlers = createToolHandlers(client, transcriptClient);
+    const handlers = createToolHandlers(
+      client,
+      transcriptClient,
+      authenticatedClient,
+    );
 
     const result = await handlers.findComments({
       url: "https://youtu.be/dQw4w9WgXcQ",
@@ -133,5 +150,25 @@ describe("tool schemas", () => {
         maxSegments: 501,
       }).success,
     ).toBe(false);
+  });
+
+  it("defaults new playlists to private and gates destructive mutations", () => {
+    expect(createPlaylistSchema.parse({ title: "Research" })).toMatchObject({
+      privacy_status: "private",
+    });
+    expect(
+      removePlaylistItemSchema.safeParse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        playlist_item_id: "item",
+      }).success,
+    ).toBe(false);
+    expect(
+      reorderPlaylistItemSchema.safeParse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        playlist_item_id: "item",
+        position: 0,
+        confirm: true,
+      }).success,
+    ).toBe(true);
   });
 });
