@@ -337,9 +337,19 @@ export class AuthenticatedYoutubeClient {
           },
         },
       });
-    return normalizePublicPlaylistItem(
+    const observed = normalizePublicPlaylistItem(
       await this.getPlaylistItem(playlist.id, response.id),
     );
+    if (
+      observed.video_id !== video.videoId ||
+      (input.position !== undefined && observed.position !== input.position)
+    ) {
+      throw new YoutubeMcpError(
+        "YouTube did not confirm the added playlist item state.",
+        "playlist_write_verification_failed",
+      );
+    }
+    return observed;
   }
 
   async removePlaylistItem(input: {
