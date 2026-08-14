@@ -64,6 +64,7 @@ export const findPlaylistItemsSchema = z.object({
 });
 export const planPlaylistCleanupSchema = z.object({
   url: urlSchema,
+  cursor: z.string().trim().min(1).max(250_000).optional(),
   maxPages: z.number().int().min(1).max(5).default(5),
   limit: z.number().int().min(1).max(50).default(50),
 });

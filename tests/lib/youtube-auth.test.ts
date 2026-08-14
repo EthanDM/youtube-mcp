@@ -169,6 +169,7 @@ describe("AuthenticatedYoutubeClient", () => {
             item("item-2", "video-1", "A duplicate", 1),
             item("item-3", "missing-video", "Normal title", 2),
           ],
+          nextPageToken: "page-2",
         })
         .mockResolvedValueOnce({ items: [{ id: "video-1" }] }),
     } as unknown as YoutubeAuthRequestClient;
@@ -177,7 +178,7 @@ describe("AuthenticatedYoutubeClient", () => {
     const plan = await client.planPlaylistCleanup({
       url: "https://www.youtube.com/playlist?list=PL123456789",
       limit: 50,
-      maxPages: 5,
+      maxPages: 1,
     });
 
     expect(plan.removals).toEqual([
@@ -187,5 +188,42 @@ describe("AuthenticatedYoutubeClient", () => {
     expect(plan.unavailable_items).toEqual([
       expect.objectContaining({ playlist_item_id: "item-3" }),
     ]);
+    expect(plan.next_cursor).toEqual(expect.any(String));
+
+    const continuationRequestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [playlist] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "my-channel",
+            snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [item("item-4", "video-1", "Later duplicate", 3)],
+      })
+      .mockResolvedValueOnce({ items: [{ id: "video-1" }] });
+    const continuationRequest = {
+      request: continuationRequestMock,
+    } as unknown as YoutubeAuthRequestClient;
+    const continuationClient = new AuthenticatedYoutubeClient(
+      continuationRequest,
+    );
+    const continuation = await continuationClient.planPlaylistCleanup({
+      url: "https://www.youtube.com/playlist?list=PL123456789",
+      cursor: plan.next_cursor,
+      limit: 50,
+      maxPages: 5,
+    });
+
+    expect(continuation.removals).toEqual([
+      { playlist_item_id: "item-4", reason: "duplicate_video" },
+    ]);
+    const playlistItemsRequest = continuationRequestMock.mock.calls
+      .map(([request]) => request)
+      .find((request) => request.path === "/playlistItems");
+    expect(playlistItemsRequest?.query.get("pageToken")).toBe("page-2");
   });
 });

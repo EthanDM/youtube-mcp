@@ -29,6 +29,57 @@ type PlaylistItemsResponse = {
   nextPageToken?: string;
 };
 type VideoIdsResponse = { items?: Array<{ id: string }> };
+type CleanupCursor = {
+  version: 1;
+  playlistId: string;
+  nextPageToken: string;
+  retained: Array<[string, string]>;
+};
+
+function parseCleanupCursor(cursor: string): CleanupCursor {
+  try {
+    const value: unknown = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    );
+    if (
+      !value ||
+      typeof value !== "object" ||
+      (value as CleanupCursor).version !== 1 ||
+      typeof (value as CleanupCursor).playlistId !== "string" ||
+      typeof (value as CleanupCursor).nextPageToken !== "string" ||
+      !Array.isArray((value as CleanupCursor).retained) ||
+      !(value as CleanupCursor).retained.every(
+        (entry) =>
+          Array.isArray(entry) &&
+          entry.length === 2 &&
+          entry.every((part) => typeof part === "string" && part.length > 0),
+      )
+    ) {
+      throw new Error("Invalid cursor");
+    }
+    return value as CleanupCursor;
+  } catch {
+    throw new YoutubeMcpError(
+      "The cleanup cursor is invalid.",
+      "playlist_cleanup_cursor_invalid",
+    );
+  }
+}
+
+function createCleanupCursor(
+  playlistId: string,
+  nextPageToken: string,
+  retained: Map<string, string>,
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      version: 1,
+      playlistId,
+      nextPageToken,
+      retained: [...retained],
+    } satisfies CleanupCursor),
+  ).toString("base64url");
+}
 
 /** Owns account-scoped playlist reads and writes, including ownership enforcement. */
 export class AuthenticatedYoutubeClient {
@@ -164,11 +215,19 @@ export class AuthenticatedYoutubeClient {
 
   async planPlaylistCleanup(input: {
     url: string;
+    cursor?: string;
     maxPages: number;
     limit: number;
   }): Promise<YoutubePlaylistCleanupPlan> {
     const playlist = await this.getOwnedPlaylist(input.url);
-    let pageToken: string | undefined;
+    const cursor = input.cursor ? parseCleanupCursor(input.cursor) : undefined;
+    if (cursor && cursor.playlistId !== playlist.id) {
+      throw new YoutubeMcpError(
+        "The cleanup cursor does not match this playlist.",
+        "playlist_cleanup_cursor_invalid",
+      );
+    }
+    let pageToken = cursor?.nextPageToken;
     let nextPageToken: string | undefined;
     let fetchedCount = 0;
     let searchedPages = 0;
@@ -193,7 +252,7 @@ export class AuthenticatedYoutubeClient {
     const unavailableVideoIds = await this.getUnavailableVideoIds(
       allItems.flatMap((item) => (item.video_id ? [item.video_id] : [])),
     );
-    const seen = new Map<string, string>();
+    const seen = new Map(cursor?.retained);
     const removals: YoutubePlaylistCleanupPlan["removals"] = [];
     const unavailable_items: YoutubePlaylistCleanupPlan["unavailable_items"] =
       [];
@@ -236,6 +295,9 @@ export class AuthenticatedYoutubeClient {
       duplicate_groups,
       unavailable_items,
       next_page_token: nextPageToken,
+      next_cursor: nextPageToken
+        ? createCleanupCursor(playlist.id, nextPageToken, seen)
+        : undefined,
       fetched_count: fetchedCount,
       searched_pages: searchedPages,
       max_pages: input.maxPages,

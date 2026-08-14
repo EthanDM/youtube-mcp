@@ -226,6 +226,7 @@ export type YoutubePlaylistCleanupPlan = {
   }>;
   unavailable_items: YoutubePlaylistItem[];
   next_page_token?: string;
+  next_cursor?: string;
   fetched_count: number;
   searched_pages: number;
   max_pages: number;

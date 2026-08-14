@@ -107,7 +107,7 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 `youtube_get_playlist_items` accepts public `/playlist?list=...` and `/watch?...&list=...` URLs and returns one explicit item page. Items retain their playlist item IDs and positions for safe future authenticated workflows.
 
-`youtube_find_playlist_items` matches literal terms across at most five public or owned-playlist pages. `youtube_plan_playlist_cleanup` is owned-playlist-only and returns deterministic duplicate/unavailable-item removal recommendations; it never mutates and does not infer subjective sequencing. Every playlist write is read back and verified before success is returned.
+`youtube_find_playlist_items` matches literal terms across at most five public or owned-playlist pages. `youtube_plan_playlist_cleanup` is owned-playlist-only and returns deterministic duplicate/unavailable-item removal recommendations; it never mutates and does not infer subjective sequencing. For a truncated cleanup pass, provide its opaque `next_cursor` to continue while retaining duplicate-detection context. Every playlist write is read back and verified before success is returned.
 
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. Availability can change and is not guaranteed for every public video.
 
