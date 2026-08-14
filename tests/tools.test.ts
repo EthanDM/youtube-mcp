@@ -191,5 +191,11 @@ describe("tool schemas", () => {
         maxPages: 6,
       }).success,
     ).toBe(false);
+    expect(
+      planPlaylistCleanupSchema.safeParse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        cursor: "x".repeat(250_001),
+      }).success,
+    ).toBe(true);
   });
 });
