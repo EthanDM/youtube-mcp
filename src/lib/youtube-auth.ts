@@ -28,6 +28,7 @@ type PlaylistItemsResponse = {
   items?: YoutubePlaylistItemResource[];
   nextPageToken?: string;
 };
+type VideoIdsResponse = { items?: Array<{ id: string }> };
 
 /** Owns account-scoped playlist reads and writes, including ownership enforcement. */
 export class AuthenticatedYoutubeClient {
@@ -189,16 +190,15 @@ export class AuthenticatedYoutubeClient {
       nextPageToken = response.nextPageToken;
       pageToken = nextPageToken;
     } while (pageToken && searchedPages < input.maxPages);
+    const unavailableVideoIds = await this.getUnavailableVideoIds(
+      allItems.flatMap((item) => (item.video_id ? [item.video_id] : [])),
+    );
     const seen = new Map<string, string>();
     const removals: YoutubePlaylistCleanupPlan["removals"] = [];
     const unavailable_items: YoutubePlaylistCleanupPlan["unavailable_items"] =
       [];
     for (const item of allItems) {
-      if (
-        !item.video_id ||
-        item.title === "Deleted video" ||
-        item.title === "Private video"
-      ) {
+      if (!item.video_id || unavailableVideoIds.has(item.video_id)) {
         unavailable_items.push(item);
         removals.push({
           playlist_item_id: item.playlist_item_id,
@@ -265,6 +265,8 @@ export class AuthenticatedYoutubeClient {
     const observed = await this.getPlaylistById(response.id);
     if (
       observed.title !== input.title ||
+      (input.description !== undefined &&
+        observed.description !== input.description) ||
       observed.privacy_status !== input.privacy_status
     ) {
       throw new YoutubeMcpError(
@@ -439,6 +441,25 @@ export class AuthenticatedYoutubeClient {
         "playlist_write_verification_failed",
       );
     return normalizePlaylist(playlist);
+  }
+
+  private async getUnavailableVideoIds(
+    videoIds: string[],
+  ): Promise<Set<string>> {
+    const uniqueVideoIds = [...new Set(videoIds)];
+    const availableVideoIds = new Set<string>();
+    for (let index = 0; index < uniqueVideoIds.length; index += 50) {
+      const batch = uniqueVideoIds.slice(index, index + 50);
+      const response = await this.requestClient.request<VideoIdsResponse>({
+        method: "GET",
+        path: "/videos",
+        query: new URLSearchParams({ part: "id", id: batch.join(",") }),
+      });
+      for (const video of response.items || []) availableVideoIds.add(video.id);
+    }
+    return new Set(
+      uniqueVideoIds.filter((videoId) => !availableVideoIds.has(videoId)),
+    );
   }
 
   private async getPlaylistItem(

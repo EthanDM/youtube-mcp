@@ -46,6 +46,7 @@ describe("AuthenticatedYoutubeClient", () => {
       id: "playlist-1",
       snippet: {
         title: "New",
+        description: "A description",
         channelId: "my-channel",
         channelTitle: "Mine",
         publishedAt: "2020-01-01T00:00:00Z",
@@ -59,12 +60,81 @@ describe("AuthenticatedYoutubeClient", () => {
         .mockResolvedValueOnce({ items: [playlist] }),
     } as unknown as YoutubeAuthRequestClient;
     const client = new AuthenticatedYoutubeClient(request);
-    await client.createPlaylist({ title: "New", privacy_status: "private" });
+    await client.createPlaylist({
+      title: "New",
+      description: "A description",
+      privacy_status: "private",
+    });
     expect(request.request).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "POST",
         body: expect.objectContaining({ status: { privacyStatus: "private" } }),
       }),
     );
+  });
+
+  it("plans cleanup from video availability metadata, not display titles", async () => {
+    const playlist = {
+      id: "playlist-1",
+      snippet: {
+        title: "Mine",
+        channelId: "my-channel",
+        channelTitle: "Mine",
+        publishedAt: "2020-01-01T00:00:00Z",
+      },
+    };
+    const item = (
+      id: string,
+      videoId: string,
+      title: string,
+      position: number,
+    ) => ({
+      id,
+      snippet: {
+        playlistId: "playlist-1",
+        title,
+        channelTitle: "Creator",
+        publishedAt: "2020-01-01T00:00:00Z",
+        resourceId: { videoId },
+        position,
+      },
+      contentDetails: { videoId },
+    });
+    const request = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [playlist] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "my-channel",
+              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          items: [
+            item("item-1", "video-1", "Deleted video", 0),
+            item("item-2", "video-1", "A duplicate", 1),
+            item("item-3", "missing-video", "Normal title", 2),
+          ],
+        })
+        .mockResolvedValueOnce({ items: [{ id: "video-1" }] }),
+    } as unknown as YoutubeAuthRequestClient;
+    const client = new AuthenticatedYoutubeClient(request);
+
+    const plan = await client.planPlaylistCleanup({
+      url: "https://www.youtube.com/playlist?list=PL123456789",
+      limit: 50,
+      maxPages: 5,
+    });
+
+    expect(plan.removals).toEqual([
+      { playlist_item_id: "item-2", reason: "duplicate_video" },
+      { playlist_item_id: "item-3", reason: "unavailable_video" },
+    ]);
+    expect(plan.unavailable_items).toEqual([
+      expect.objectContaining({ playlist_item_id: "item-3" }),
+    ]);
   });
 });
