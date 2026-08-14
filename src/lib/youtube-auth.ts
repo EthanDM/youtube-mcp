@@ -346,6 +346,9 @@ export class AuthenticatedYoutubeClient {
     privacy_status?: "private" | "unlisted" | "public";
   }): Promise<YoutubePlaylist> {
     const playlist = await this.getOwnedPlaylist(input.url);
+    const title = input.title ?? playlist.title;
+    const description = input.description ?? playlist.description;
+    const privacyStatus = input.privacy_status ?? playlist.privacy_status;
     const response = await this.requestClient.request<YoutubePlaylistResource>({
       method: "PUT",
       path: "/playlists",
@@ -353,21 +356,17 @@ export class AuthenticatedYoutubeClient {
       body: {
         id: playlist.id,
         snippet: {
-          title: input.title ?? playlist.title,
-          description: input.description ?? playlist.description,
+          title,
+          description,
         },
-        ...(input.privacy_status
-          ? { status: { privacyStatus: input.privacy_status } }
-          : {}),
+        ...(privacyStatus ? { status: { privacyStatus } } : {}),
       },
     });
     const observed = await this.getPlaylistById(response.id);
     if (
-      (input.title !== undefined && observed.title !== input.title) ||
-      (input.description !== undefined &&
-        observed.description !== input.description) ||
-      (input.privacy_status !== undefined &&
-        observed.privacy_status !== input.privacy_status)
+      observed.title !== title ||
+      observed.description !== description ||
+      (privacyStatus !== undefined && observed.privacy_status !== privacyStatus)
     ) {
       throw new YoutubeMcpError(
         "YouTube did not confirm the updated playlist state.",

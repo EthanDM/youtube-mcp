@@ -124,6 +124,53 @@ describe("AuthenticatedYoutubeClient", () => {
     ).rejects.toMatchObject({ code: "playlist_write_verification_failed" });
   });
 
+  it("rejects an update that does not preserve submitted metadata", async () => {
+    const playlist = {
+      id: "playlist-1",
+      snippet: {
+        title: "Old title",
+        description: "Original description",
+        channelId: "my-channel",
+        channelTitle: "Mine",
+        publishedAt: "2020-01-01T00:00:00Z",
+      },
+      status: { privacyStatus: "private" },
+    };
+    const request = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [playlist] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "my-channel",
+              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ id: "playlist-1" })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              ...playlist,
+              snippet: {
+                ...playlist.snippet,
+                description: "Changed elsewhere",
+              },
+            },
+          ],
+        }),
+    } as unknown as YoutubeAuthRequestClient;
+    const client = new AuthenticatedYoutubeClient(request);
+
+    await expect(
+      client.updatePlaylist({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        title: "New title",
+      }),
+    ).rejects.toMatchObject({ code: "playlist_write_verification_failed" });
+  });
+
   it("plans cleanup from video availability metadata, not display titles", async () => {
     const playlist = {
       id: "playlist-1",
