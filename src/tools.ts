@@ -47,6 +47,26 @@ export const searchVideosSchema = z.object({
   pageToken: pageTokenSchema,
   order: z.enum(["relevance", "date", "viewCount"]).default("relevance"),
 });
+export const searchChannelsSchema = searchVideosSchema;
+export const searchPlaylistsSchema = searchVideosSchema;
+export const getCommentRepliesSchema = z.object({
+  parent_comment_id: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(100).default(50),
+  pageToken: pageTokenSchema,
+});
+export const findPlaylistItemsSchema = z.object({
+  url: urlSchema,
+  matchTerms: z.array(z.string().trim().min(1).max(200)).min(1).max(10),
+  access: z.enum(["public", "owned"]).default("public"),
+  maxPages: z.number().int().min(1).max(5).default(5),
+  limit: z.number().int().min(1).max(50).default(50),
+  pageToken: pageTokenSchema,
+});
+export const planPlaylistCleanupSchema = z.object({
+  url: urlSchema,
+  maxPages: z.number().int().min(1).max(5).default(5),
+  limit: z.number().int().min(1).max(50).default(50),
+});
 
 export const getPlaylistItemsSchema = z.object({
   url: urlSchema,
@@ -138,6 +158,20 @@ export function createToolHandlers(
         return toolError(error);
       }
     },
+    getCommentReplies: async (input: unknown) => {
+      try {
+        const parsed = getCommentRepliesSchema.parse(input);
+        return toolSuccess(
+          await client.getCommentReplies({
+            parentCommentId: parsed.parent_comment_id,
+            limit: parsed.limit,
+            pageToken: parsed.pageToken,
+          }),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
     getChannel: async (input: unknown) => {
       try {
         const parsed = getChannelSchema.parse(input);
@@ -162,10 +196,51 @@ export function createToolHandlers(
         return toolError(error);
       }
     },
+    searchChannels: async (input: unknown) => {
+      try {
+        return toolSuccess(
+          await client.searchChannels(searchChannelsSchema.parse(input)),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    searchPlaylists: async (input: unknown) => {
+      try {
+        return toolSuccess(
+          await client.searchPlaylists(searchPlaylistsSchema.parse(input)),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
     getPlaylistItems: async (input: unknown) => {
       try {
         const parsed = getPlaylistItemsSchema.parse(input);
         return toolSuccess(await client.getPlaylistItems(parsed));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    findPlaylistItems: async (input: unknown) => {
+      try {
+        const parsed = findPlaylistItemsSchema.parse(input);
+        if (parsed.access === "public")
+          return toolSuccess(await client.findPlaylistItems(parsed));
+        return toolSuccess(
+          await getAuthenticatedClient().findPlaylistItems(parsed),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    planPlaylistCleanup: async (input: unknown) => {
+      try {
+        return toolSuccess(
+          await getAuthenticatedClient().planPlaylistCleanup(
+            planPlaylistCleanupSchema.parse(input),
+          ),
+        );
       } catch (error) {
         return toolError(error);
       }

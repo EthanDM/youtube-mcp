@@ -113,6 +113,19 @@ export type RawComment = {
   snippet: YoutubeCommentSnippet;
 };
 
+export function normalizeComment(resource: RawComment): YoutubeComment {
+  return {
+    id: resource.id,
+    text: resource.snippet.textDisplay || "",
+    author: resource.snippet.authorDisplayName || "Unknown author",
+    author_channel_id: resource.snippet.authorChannelId?.value,
+    likes: resource.snippet.likeCount || 0,
+    published_at: resource.snippet.publishedAt || "",
+    updated_at: resource.snippet.updatedAt || "",
+    reply_count: 0,
+  };
+}
+
 export function normalizeVideo(
   resource: YoutubeVideoResource,
   canonicalUrl: string,
@@ -242,19 +255,6 @@ export function normalizePublicPlaylistItem(
       "",
     position: resource.snippet.position || 0,
     thumbnails: normalizeThumbnails(resource.snippet.thumbnails),
-  };
-}
-
-function normalizeComment(resource: RawComment): YoutubeComment {
-  return {
-    id: resource.id,
-    text: resource.snippet.textDisplay || "",
-    author: resource.snippet.authorDisplayName || "Unknown author",
-    author_channel_id: resource.snippet.authorChannelId?.value,
-    likes: resource.snippet.likeCount || 0,
-    published_at: resource.snippet.publishedAt || "",
-    updated_at: resource.snippet.updatedAt || "",
-    reply_count: 0,
   };
 }
 

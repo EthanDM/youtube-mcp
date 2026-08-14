@@ -320,6 +320,58 @@ describe("YoutubeClient", () => {
       }),
     ).rejects.toMatchObject({ code: "playlist_items_unavailable" });
   });
+
+  it("searches channels and playlists with enrichment and gets reply pages", async () => {
+    const client = new YoutubeClient(
+      config,
+      createRouterFetchMock({
+        "GET /youtube/v3/search?": (url) => {
+          if (url.searchParams.get("type") === "channel")
+            return jsonResponse({
+              items: [{ id: { channelId: "channel-1" } }],
+            });
+          return jsonResponse({
+            items: [{ id: { playlistId: "playlist-1" } }],
+          });
+        },
+        "GET /youtube/v3/channels?": () =>
+          jsonResponse({ items: [{ ...channelResource(), id: "channel-1" }] }),
+        "GET /youtube/v3/playlists?": () =>
+          jsonResponse({
+            items: [
+              {
+                id: "playlist-1",
+                snippet: {
+                  title: "Focus",
+                  channelId: "channel-1",
+                  channelTitle: "Channel",
+                  publishedAt: "2020-01-01T00:00:00Z",
+                },
+              },
+            ],
+          }),
+        "GET /youtube/v3/comments?": (url) => {
+          expect(url.searchParams.get("parentId")).toBe("parent");
+          return jsonResponse({
+            nextPageToken: "next",
+            items: [comment("reply", "Reply")],
+          });
+        },
+      }),
+    );
+    await expect(
+      client.searchChannels({ query: "channel", limit: 1, order: "relevance" }),
+    ).resolves.toMatchObject({ channels: [{ id: "channel-1" }] });
+    await expect(
+      client.searchPlaylists({ query: "focus", limit: 1, order: "relevance" }),
+    ).resolves.toMatchObject({ playlists: [{ id: "playlist-1" }] });
+    await expect(
+      client.getCommentReplies({ parentCommentId: "parent", limit: 1 }),
+    ).resolves.toMatchObject({
+      replies: [{ id: "reply" }],
+      next_page_token: "next",
+    });
+  });
 });
 
 describe("YoutubeRequestClient", () => {

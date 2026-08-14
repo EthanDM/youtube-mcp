@@ -5,6 +5,8 @@ import type {
   YoutubePlaylist,
   YoutubePlaylistItem,
   YoutubePlaylistItemPage,
+  YoutubePlaylistItemSearchResult,
+  YoutubePlaylistCleanupPlan,
 } from "../types.js";
 import {
   normalizeChannel,
@@ -99,6 +101,148 @@ export class AuthenticatedYoutubeClient {
     };
   }
 
+  async findPlaylistItems(input: {
+    url: string;
+    matchTerms: string[];
+    maxPages: number;
+    limit: number;
+    pageToken?: string;
+  }): Promise<YoutubePlaylistItemSearchResult> {
+    const terms = input.matchTerms.map((term) => term.toLocaleLowerCase());
+    const playlist = await this.getOwnedPlaylist(input.url);
+    let pageToken = input.pageToken;
+    let nextPageToken: string | undefined;
+    let fetchedCount = 0;
+    let searchedPages = 0;
+    const items: YoutubePlaylistItemSearchResult["items"] = [];
+    do {
+      const response = await this.requestClient.request<PlaylistItemsResponse>({
+        method: "GET",
+        path: "/playlistItems",
+        query: new URLSearchParams({
+          part: "snippet,contentDetails",
+          playlistId: playlist.id,
+          maxResults: String(input.limit),
+          ...(pageToken ? { pageToken } : {}),
+        }),
+      });
+      const page = (response.items || []).map(normalizePublicPlaylistItem);
+      fetchedCount += page.length;
+      searchedPages += 1;
+      items.push(
+        ...page.filter((item) =>
+          terms.some((term) =>
+            `${item.title}\n${item.description}`
+              .toLocaleLowerCase()
+              .includes(term),
+          ),
+        ),
+      );
+      nextPageToken = response.nextPageToken;
+      pageToken = nextPageToken;
+    } while (pageToken && searchedPages < input.maxPages);
+    return {
+      playlist,
+      items,
+      next_page_token: nextPageToken,
+      fetched_count: fetchedCount,
+      matched_count: items.length,
+      matched_terms: terms.filter((term) =>
+        items.some((item) =>
+          `${item.title}\n${item.description}`
+            .toLocaleLowerCase()
+            .includes(term),
+        ),
+      ),
+      search_scope: "retrieved_pages_only",
+      searched_pages: searchedPages,
+      max_pages: input.maxPages,
+      complete: !nextPageToken,
+    };
+  }
+
+  async planPlaylistCleanup(input: {
+    url: string;
+    maxPages: number;
+    limit: number;
+  }): Promise<YoutubePlaylistCleanupPlan> {
+    const playlist = await this.getOwnedPlaylist(input.url);
+    let pageToken: string | undefined;
+    let nextPageToken: string | undefined;
+    let fetchedCount = 0;
+    let searchedPages = 0;
+    const allItems: YoutubePlaylistItemPage["items"] = [];
+    do {
+      const response = await this.requestClient.request<PlaylistItemsResponse>({
+        method: "GET",
+        path: "/playlistItems",
+        query: new URLSearchParams({
+          part: "snippet,contentDetails",
+          playlistId: playlist.id,
+          maxResults: String(input.limit),
+          ...(pageToken ? { pageToken } : {}),
+        }),
+      });
+      allItems.push(...(response.items || []).map(normalizePublicPlaylistItem));
+      fetchedCount += response.items?.length || 0;
+      searchedPages += 1;
+      nextPageToken = response.nextPageToken;
+      pageToken = nextPageToken;
+    } while (pageToken && searchedPages < input.maxPages);
+    const seen = new Map<string, string>();
+    const removals: YoutubePlaylistCleanupPlan["removals"] = [];
+    const unavailable_items: YoutubePlaylistCleanupPlan["unavailable_items"] =
+      [];
+    for (const item of allItems) {
+      if (
+        !item.video_id ||
+        item.title === "Deleted video" ||
+        item.title === "Private video"
+      ) {
+        unavailable_items.push(item);
+        removals.push({
+          playlist_item_id: item.playlist_item_id,
+          reason: "unavailable_video",
+        });
+        continue;
+      }
+      const retained = seen.get(item.video_id);
+      if (retained)
+        removals.push({
+          playlist_item_id: item.playlist_item_id,
+          reason: "duplicate_video",
+        });
+      else seen.set(item.video_id, item.playlist_item_id);
+    }
+    const duplicate_groups = [...seen].flatMap(
+      ([video_id, retained_playlist_item_id]) => {
+        const removal_playlist_item_ids = removals
+          .filter((removal) => removal.reason === "duplicate_video")
+          .map((removal) => removal.playlist_item_id)
+          .filter((id) =>
+            allItems.some(
+              (item) =>
+                item.playlist_item_id === id && item.video_id === video_id,
+            ),
+          );
+        return removal_playlist_item_ids.length
+          ? [{ video_id, retained_playlist_item_id, removal_playlist_item_ids }]
+          : [];
+      },
+    );
+    return {
+      playlist,
+      removals,
+      duplicate_groups,
+      unavailable_items,
+      next_page_token: nextPageToken,
+      fetched_count: fetchedCount,
+      searched_pages: searchedPages,
+      max_pages: input.maxPages,
+      complete: !nextPageToken,
+    };
+  }
+
   async createPlaylist(input: {
     title: string;
     description?: string;
@@ -118,7 +262,17 @@ export class AuthenticatedYoutubeClient {
         status: { privacyStatus: input.privacy_status },
       },
     });
-    return normalizePlaylist(response);
+    const observed = await this.getPlaylistById(response.id);
+    if (
+      observed.title !== input.title ||
+      observed.privacy_status !== input.privacy_status
+    ) {
+      throw new YoutubeMcpError(
+        "YouTube did not confirm the created playlist state.",
+        "playlist_write_verification_failed",
+      );
+    }
+    return observed;
   }
 
   async updatePlaylist(input: {
@@ -143,7 +297,20 @@ export class AuthenticatedYoutubeClient {
           : {}),
       },
     });
-    return normalizePlaylist(response);
+    const observed = await this.getPlaylistById(response.id);
+    if (
+      (input.title !== undefined && observed.title !== input.title) ||
+      (input.description !== undefined &&
+        observed.description !== input.description) ||
+      (input.privacy_status !== undefined &&
+        observed.privacy_status !== input.privacy_status)
+    ) {
+      throw new YoutubeMcpError(
+        "YouTube did not confirm the updated playlist state.",
+        "playlist_write_verification_failed",
+      );
+    }
+    return observed;
   }
 
   async addPlaylistVideo(input: {
@@ -168,7 +335,9 @@ export class AuthenticatedYoutubeClient {
           },
         },
       });
-    return normalizePublicPlaylistItem(response);
+    return normalizePublicPlaylistItem(
+      await this.getPlaylistItem(playlist.id, response.id),
+    );
   }
 
   async removePlaylistItem(input: {
@@ -182,6 +351,16 @@ export class AuthenticatedYoutubeClient {
       path: "/playlistItems",
       query: new URLSearchParams({ id: input.playlistItemId }),
     });
+    const observed = await this.requestClient.request<PlaylistItemsResponse>({
+      method: "GET",
+      path: "/playlistItems",
+      query: new URLSearchParams({ part: "snippet", id: input.playlistItemId }),
+    });
+    if (observed.items?.length)
+      throw new YoutubeMcpError(
+        "YouTube did not confirm playlist item removal.",
+        "playlist_write_verification_failed",
+      );
     return { playlist_item_id: input.playlistItemId, removed: true };
   }
 
@@ -213,7 +392,13 @@ export class AuthenticatedYoutubeClient {
           },
         },
       });
-    return normalizePublicPlaylistItem(response);
+    const observed = await this.getPlaylistItem(playlist.id, response.id);
+    if (observed.snippet.position !== input.position)
+      throw new YoutubeMcpError(
+        "YouTube did not confirm playlist item position.",
+        "playlist_write_verification_failed",
+      );
+    return normalizePublicPlaylistItem(observed);
   }
 
   private async getOwnedPlaylist(url: string): Promise<YoutubePlaylist> {
@@ -239,6 +424,21 @@ export class AuthenticatedYoutubeClient {
         "playlist_not_owned",
       );
     return normalizePlaylist(resource);
+  }
+
+  private async getPlaylistById(id: string): Promise<YoutubePlaylist> {
+    const response = await this.requestClient.request<PlaylistResponse>({
+      method: "GET",
+      path: "/playlists",
+      query: new URLSearchParams({ part: "snippet,contentDetails,status", id }),
+    });
+    const playlist = response.items?.[0];
+    if (!playlist)
+      throw new YoutubeMcpError(
+        "YouTube did not return the playlist after mutation.",
+        "playlist_write_verification_failed",
+      );
+    return normalizePlaylist(playlist);
   }
 
   private async getPlaylistItem(

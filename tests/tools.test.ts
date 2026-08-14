@@ -14,6 +14,9 @@ import {
   createPlaylistSchema,
   removePlaylistItemSchema,
   reorderPlaylistItemSchema,
+  findPlaylistItemsSchema,
+  getCommentRepliesSchema,
+  planPlaylistCleanupSchema,
 } from "../src/tools.js";
 
 const transcriptClient = {} as TranscriptClient;
@@ -170,5 +173,23 @@ describe("tool schemas", () => {
         confirm: true,
       }).success,
     ).toBe(true);
+  });
+
+  it("bounds V2.1 replies, playlist search, and cleanup planning", () => {
+    expect(
+      getCommentRepliesSchema.parse({ parent_comment_id: "comment" }),
+    ).toMatchObject({ limit: 50 });
+    expect(
+      findPlaylistItemsSchema.parse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        matchTerms: ["focus"],
+      }),
+    ).toMatchObject({ access: "public", maxPages: 5, limit: 50 });
+    expect(
+      planPlaylistCleanupSchema.safeParse({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        maxPages: 6,
+      }).success,
+    ).toBe(false);
   });
 });

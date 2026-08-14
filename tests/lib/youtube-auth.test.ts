@@ -42,16 +42,21 @@ describe("AuthenticatedYoutubeClient", () => {
   });
 
   it("creates private playlists by default through the schema contract", async () => {
+    const playlist = {
+      id: "playlist-1",
+      snippet: {
+        title: "New",
+        channelId: "my-channel",
+        channelTitle: "Mine",
+        publishedAt: "2020-01-01T00:00:00Z",
+      },
+      status: { privacyStatus: "private" },
+    };
     const request = {
-      request: vi.fn(async () => ({
-        id: "playlist-1",
-        snippet: {
-          title: "New",
-          channelId: "my-channel",
-          channelTitle: "Mine",
-          publishedAt: "2020-01-01T00:00:00Z",
-        },
-      })),
+      request: vi
+        .fn()
+        .mockResolvedValueOnce(playlist)
+        .mockResolvedValueOnce({ items: [playlist] }),
     } as unknown as YoutubeAuthRequestClient;
     const client = new AuthenticatedYoutubeClient(request);
     await client.createPlaylist({ title: "New", privacy_status: "private" });
