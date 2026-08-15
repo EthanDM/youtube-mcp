@@ -307,6 +307,7 @@ export class YoutubeClient {
       new URLSearchParams({
         part: "snippet,contentDetails,statistics,liveStreamingDetails,status",
         id: ids.join(","),
+        maxResults: String(ids.length),
       }),
     );
     const byId = new Map(

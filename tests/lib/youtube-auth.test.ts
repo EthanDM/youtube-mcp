@@ -198,27 +198,28 @@ describe("AuthenticatedYoutubeClient", () => {
       },
       contentDetails: { videoId },
     });
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [playlist] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "my-channel",
+            snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          item("item-1", "video-1", "Deleted video", 0),
+          item("item-2", "video-1", "A duplicate", 1),
+          item("item-3", "missing-video", "Normal title", 2),
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({ items: [{ id: "video-1" }] });
     const request = {
-      request: vi
-        .fn()
-        .mockResolvedValueOnce({ items: [playlist] })
-        .mockResolvedValueOnce({
-          items: [
-            {
-              id: "my-channel",
-              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          items: [
-            item("item-1", "video-1", "Deleted video", 0),
-            item("item-2", "video-1", "A duplicate", 1),
-            item("item-3", "missing-video", "Normal title", 2),
-          ],
-          nextPageToken: "page-2",
-        })
-        .mockResolvedValueOnce({ items: [{ id: "video-1" }] }),
+      request: requestMock,
     } as unknown as YoutubeAuthRequestClient;
     const client = new AuthenticatedYoutubeClient(request);
 
@@ -236,6 +237,10 @@ describe("AuthenticatedYoutubeClient", () => {
       expect.objectContaining({ playlist_item_id: "item-3" }),
     ]);
     expect(plan.next_cursor).toEqual(expect.any(String));
+    const availabilityRequest = requestMock.mock.calls
+      .map(([request]) => request)
+      .find((request) => request.path === "/videos");
+    expect(availabilityRequest?.query.get("maxResults")).toBe("2");
 
     const continuationRequestMock = vi
       .fn()

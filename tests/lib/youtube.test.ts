@@ -216,6 +216,7 @@ describe("YoutubeClient", () => {
         },
         "GET /youtube/v3/videos?": (url) => {
           expect(url.searchParams.get("id")).toBe("second,first");
+          expect(url.searchParams.get("maxResults")).toBe("2");
           return jsonResponse({
             items: [
               { ...videoResource(), id: "first" },

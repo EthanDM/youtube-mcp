@@ -527,7 +527,11 @@ export class AuthenticatedYoutubeClient {
       const response = await this.requestClient.request<VideoIdsResponse>({
         method: "GET",
         path: "/videos",
-        query: new URLSearchParams({ part: "id", id: batch.join(",") }),
+        query: new URLSearchParams({
+          part: "id",
+          id: batch.join(","),
+          maxResults: String(batch.length),
+        }),
       });
       for (const video of response.items || []) availableVideoIds.add(video.id);
     }
