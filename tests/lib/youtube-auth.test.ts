@@ -372,6 +372,7 @@ describe("AuthenticatedYoutubeClient", () => {
         })
         .mockResolvedValueOnce({
           items: [item("item-4", "video-2", "Current", 3)],
+          nextPageToken: "page-3",
         })
         .mockResolvedValueOnce({ items: [{ id: "video-2" }] }),
     } as unknown as YoutubeAuthRequestClient;
@@ -383,7 +384,7 @@ describe("AuthenticatedYoutubeClient", () => {
         url: "https://www.youtube.com/playlist?list=PL123456789",
         cursor: plan.next_cursor,
         limit: 50,
-        maxPages: 5,
+        maxPages: 1,
       });
     expect(retainedUnavailablePlan.removals).toEqual([
       { playlist_item_id: "item-1", reason: "unavailable_video" },
@@ -391,5 +392,11 @@ describe("AuthenticatedYoutubeClient", () => {
     expect(retainedUnavailablePlan.unavailable_items).toEqual([
       expect.objectContaining({ playlist_item_id: "item-1" }),
     ]);
+    const continuedCursor = JSON.parse(
+      Buffer.from(retainedUnavailablePlan.next_cursor!, "base64url").toString(
+        "utf8",
+      ),
+    );
+    expect(continuedCursor.retained).toEqual([["video-2", "item-4"]]);
   });
 });

@@ -273,6 +273,7 @@ export class AuthenticatedYoutubeClient {
           playlist_item_id: item.playlist_item_id,
           reason: "unavailable_video",
         });
+        seen.delete(videoId);
       }
     }
     for (const item of allItems) {
@@ -282,6 +283,7 @@ export class AuthenticatedYoutubeClient {
           playlist_item_id: item.playlist_item_id,
           reason: "unavailable_video",
         });
+        if (item.video_id) seen.delete(item.video_id);
         continue;
       }
       const retained = seen.get(item.video_id);
