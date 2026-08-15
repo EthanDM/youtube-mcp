@@ -560,7 +560,20 @@ describe("AuthenticatedYoutubeClient", () => {
         limit: 50,
         maxPages: 1,
       }),
-    ).rejects.toMatchObject({ code: "playlist_clone_unavailable" });
+    ).resolves.toMatchObject({
+      copied_items: [],
+      skipped_items: [
+        {
+          playlist_item_id: "source-1",
+          video_id: "missing",
+          reason: "unavailable_video",
+        },
+      ],
+      failure: {
+        stage: "source_preflight",
+        code: "playlist_clone_unavailable",
+      },
+    });
     expect(
       requestMock.mock.calls.some(([request]) => request.method === "POST"),
     ).toBe(false);

@@ -252,7 +252,7 @@ export type YoutubePlaylistCleanupApplyResult = {
 
 export type YoutubePlaylistCloneResult = {
   source_playlist: YoutubePlaylist;
-  playlist: YoutubePlaylist;
+  playlist?: YoutubePlaylist;
   copied_items: YoutubePlaylistItem[];
   remaining_video_ids?: string[];
   indeterminate_video_ids?: string[];
@@ -279,6 +279,11 @@ export type YoutubePlaylistCloneResult = {
       }
     | {
         stage: "playlist_creation_verification";
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "source_preflight";
         code: string;
         message: string;
       };

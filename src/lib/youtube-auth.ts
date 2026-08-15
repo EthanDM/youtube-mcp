@@ -469,10 +469,14 @@ export class AuthenticatedYoutubeClient {
       return true;
     });
     if (copyable.length === 0) {
-      throw new YoutubeMcpError(
-        "No readable public videos from the selected source pages can be copied.",
-        "playlist_clone_unavailable",
-      );
+      return clonePreflightFailure({
+        sourcePlaylist: source.playlist,
+        fetchedCount: source.fetchedCount,
+        searchedPages: source.searchedPages,
+        nextPageToken: source.nextPageToken,
+        skippedItems: skipped_items,
+        maxPages: input.maxPages,
+      });
     }
 
     let playlist: YoutubePlaylist;
@@ -490,6 +494,9 @@ export class AuthenticatedYoutubeClient {
           searchedPages: source.searchedPages,
           nextPageToken: source.nextPageToken,
           playlist: error.playlist,
+          remainingVideoIds: copyable.flatMap((item) =>
+            item.video_id ? [item.video_id] : [],
+          ),
           skippedItems: skipped_items,
           maxPages: input.maxPages,
           error,
@@ -1055,12 +1062,41 @@ function cloneFinalVerificationFailure(input: {
   };
 }
 
+function clonePreflightFailure(input: {
+  sourcePlaylist: YoutubePlaylist;
+  fetchedCount: number;
+  searchedPages: number;
+  nextPageToken?: string;
+  skippedItems: YoutubePlaylistCloneResult["skipped_items"];
+  maxPages: number;
+}): YoutubePlaylistCloneResult {
+  return {
+    source_playlist: input.sourcePlaylist,
+    copied_items: [],
+    remaining_video_ids: [],
+    indeterminate_video_ids: [],
+    skipped_items: input.skippedItems,
+    fetched_count: input.fetchedCount,
+    searched_pages: input.searchedPages,
+    max_pages: input.maxPages,
+    complete: false,
+    remaining_source_page_token: input.nextPageToken,
+    failure: {
+      stage: "source_preflight",
+      code: "playlist_clone_unavailable",
+      message:
+        "No readable public videos from the selected source pages can be copied.",
+    },
+  };
+}
+
 function cloneCreationVerificationFailure(input: {
   sourcePlaylist: YoutubePlaylist;
   fetchedCount: number;
   searchedPages: number;
   nextPageToken?: string;
   playlist: YoutubePlaylist;
+  remainingVideoIds: string[];
   skippedItems: YoutubePlaylistCloneResult["skipped_items"];
   maxPages: number;
   error: unknown;
@@ -1069,7 +1105,7 @@ function cloneCreationVerificationFailure(input: {
     source_playlist: input.sourcePlaylist,
     playlist: input.playlist,
     copied_items: [],
-    remaining_video_ids: [],
+    remaining_video_ids: input.remainingVideoIds,
     indeterminate_video_ids: [],
     skipped_items: input.skippedItems,
     fetched_count: input.fetchedCount,
