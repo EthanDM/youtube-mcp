@@ -385,13 +385,9 @@ export class AuthenticatedYoutubeClient {
         "playlist_cleanup_stale",
       );
     }
-    try {
-      await Promise.all(
-        requestedIds.map((playlistItemId) =>
-          this.getPlaylistItem(playlist.id, playlistItemId),
-        ),
-      );
-    } catch {
+    if (
+      !(await this.cleanupItemsStillBelongToPlaylist(playlist.id, requestedIds))
+    ) {
       throw new YoutubeMcpError(
         "The cleanup plan contains an item that is no longer in this owned playlist.",
         "playlist_cleanup_stale",
@@ -502,7 +498,18 @@ export class AuthenticatedYoutubeClient {
           error,
         });
       }
-      throw error;
+      return cloneIndeterminateCreationFailure({
+        sourcePlaylist: source.playlist,
+        fetchedCount: source.fetchedCount,
+        searchedPages: source.searchedPages,
+        nextPageToken: source.nextPageToken,
+        remainingVideoIds: copyable.flatMap((item) =>
+          item.video_id ? [item.video_id] : [],
+        ),
+        skippedItems: skipped_items,
+        maxPages: input.maxPages,
+        error,
+      });
     }
     const copied_items: YoutubePlaylistItem[] = [];
     for (let index = 0; index < copyable.length; index += 1) {
@@ -947,6 +954,29 @@ export class AuthenticatedYoutubeClient {
     );
   }
 
+  private async cleanupItemsStillBelongToPlaylist(
+    playlistId: string,
+    playlistItemIds: string[],
+  ): Promise<boolean> {
+    const found = new Set<string>();
+    for (let index = 0; index < playlistItemIds.length; index += 50) {
+      const batch = playlistItemIds.slice(index, index + 50);
+      const response = await this.requestClient.request<PlaylistItemsResponse>({
+        method: "GET",
+        path: "/playlistItems",
+        query: new URLSearchParams({
+          part: "snippet",
+          id: batch.join(","),
+          maxResults: String(batch.length),
+        }),
+      });
+      for (const item of response.items || []) {
+        if (item.snippet.playlistId === playlistId) found.add(item.id);
+      }
+    }
+    return playlistItemIds.every((playlistItemId) => found.has(playlistItemId));
+  }
+
   private async getValidatedRetainedItems(
     playlistId: string,
     retained: Array<[string, string]>,
@@ -1022,7 +1052,13 @@ function toWriteFailure<T extends "playlist_item_id" | "video_id">(
 
 function deriveCloneTitle(sourceTitle: string): string {
   const prefix = "Copy of ";
-  return `${prefix}${sourceTitle.slice(0, 150 - prefix.length)}`;
+  const sourceLimit = 150 - prefix.length;
+  let title = "";
+  for (const character of sourceTitle) {
+    if (title.length + character.length > sourceLimit) break;
+    title += character;
+  }
+  return `${prefix}${title}`;
 }
 
 function cloneFinalVerificationFailure(input: {
@@ -1123,6 +1159,41 @@ function cloneCreationVerificationFailure(input: {
         input.error instanceof Error
           ? input.error.message
           : "YouTube playlist creation verification failed.",
+    },
+  };
+}
+
+function cloneIndeterminateCreationFailure(input: {
+  sourcePlaylist: YoutubePlaylist;
+  fetchedCount: number;
+  searchedPages: number;
+  nextPageToken?: string;
+  remainingVideoIds: string[];
+  skippedItems: YoutubePlaylistCloneResult["skipped_items"];
+  maxPages: number;
+  error: unknown;
+}): YoutubePlaylistCloneResult {
+  return {
+    source_playlist: input.sourcePlaylist,
+    copied_items: [],
+    remaining_video_ids: input.remainingVideoIds,
+    indeterminate_video_ids: [],
+    skipped_items: input.skippedItems,
+    fetched_count: input.fetchedCount,
+    searched_pages: input.searchedPages,
+    max_pages: input.maxPages,
+    complete: false,
+    remaining_source_page_token: input.nextPageToken,
+    failure: {
+      stage: "playlist_creation_indeterminate",
+      code:
+        input.error instanceof YoutubeMcpError
+          ? input.error.code
+          : "playlist_write_failed",
+      message:
+        input.error instanceof Error
+          ? input.error.message
+          : "YouTube playlist creation state is indeterminate.",
     },
   };
 }

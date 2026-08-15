@@ -408,10 +408,10 @@ describe("AuthenticatedYoutubeClient", () => {
       .mockResolvedValueOnce({ items: [playlist] })
       .mockResolvedValueOnce(channelResponse())
       .mockResolvedValueOnce({
-        items: [playlistItemResource("item-1", "video-1", 0)],
-      })
-      .mockResolvedValueOnce({
-        items: [playlistItemResource("item-2", "video-2", 1)],
+        items: [
+          playlistItemResource("item-1", "video-1", 0),
+          playlistItemResource("item-2", "video-2", 1),
+        ],
       })
       .mockResolvedValueOnce({
         items: [playlistItemResource("item-1", "video-1", 0)],

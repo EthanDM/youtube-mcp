@@ -283,6 +283,11 @@ export type YoutubePlaylistCloneResult = {
         message: string;
       }
     | {
+        stage: "playlist_creation_indeterminate";
+        code: string;
+        message: string;
+      }
+    | {
         stage: "source_preflight";
         code: string;
         message: string;
