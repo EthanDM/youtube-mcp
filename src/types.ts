@@ -266,6 +266,10 @@ export type YoutubePlaylistCloneResult = {
   max_pages: number;
   complete: boolean;
   remaining_source_page_token?: string;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
   failure?:
     | {
         video_id: string;

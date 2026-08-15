@@ -607,7 +607,15 @@ describe("AuthenticatedYoutubeClient", () => {
           "YouTube could not verify the insertion.",
           "playlist_write_verification_failed",
         ),
-      );
+      )
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...target,
+            contentDetails: { itemCount: 1 },
+          },
+        ],
+      });
     const client = new AuthenticatedYoutubeClient(
       { request: requestMock } as unknown as YoutubeAuthRequestClient,
       publicClient,
@@ -622,6 +630,7 @@ describe("AuthenticatedYoutubeClient", () => {
         maxPages: 1,
       }),
     ).resolves.toMatchObject({
+      playlist: { item_count: 1 },
       copied_items: [{ playlist_item_id: "copy-1", video_id: "video-1" }],
       indeterminate_video_ids: ["video-2"],
       remaining_video_ids: ["video-3"],

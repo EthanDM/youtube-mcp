@@ -519,9 +519,10 @@ export class AuthenticatedYoutubeClient {
           await this.addVideoToPlaylist(playlist, sourceItem.video_id!),
         );
       } catch (error) {
+        const observedPlaylist = await this.observeClonePlaylist(playlist);
         return {
           source_playlist: source.playlist,
-          playlist,
+          ...observedPlaylist,
           copied_items,
           remaining_video_ids: copyable
             .slice(index + 1)
@@ -911,6 +912,30 @@ export class AuthenticatedYoutubeClient {
       YoutubePlaylistCleanupApplyResult,
       "playlist" | "metadata_verification"
     >
+  > {
+    try {
+      return { playlist: await this.getPlaylistById(playlist.id) };
+    } catch (error) {
+      return {
+        playlist,
+        metadata_verification: {
+          code:
+            error instanceof YoutubeMcpError
+              ? error.code
+              : "playlist_write_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "YouTube playlist metadata verification failed.",
+        },
+      };
+    }
+  }
+
+  private async observeClonePlaylist(
+    playlist: YoutubePlaylist,
+  ): Promise<
+    Pick<YoutubePlaylistCloneResult, "playlist" | "metadata_verification">
   > {
     try {
       return { playlist: await this.getPlaylistById(playlist.id) };
