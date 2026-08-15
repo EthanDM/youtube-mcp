@@ -249,6 +249,9 @@ describe("AuthenticatedYoutubeClient", () => {
         ],
       })
       .mockResolvedValueOnce({
+        items: [item("item-1", "video-1", "Deleted video", 0)],
+      })
+      .mockResolvedValueOnce({
         items: [item("item-4", "video-1", "Later duplicate", 3)],
       })
       .mockResolvedValueOnce({ items: [{ id: "video-1" }] });
@@ -270,7 +273,40 @@ describe("AuthenticatedYoutubeClient", () => {
     ]);
     const playlistItemsRequest = continuationRequestMock.mock.calls
       .map(([request]) => request)
-      .find((request) => request.path === "/playlistItems");
+      .find(
+        (request) =>
+          request.path === "/playlistItems" &&
+          request.query.get("pageToken") === "page-2",
+      );
     expect(playlistItemsRequest?.query.get("pageToken")).toBe("page-2");
+
+    const staleCursorRequest = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [playlist] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "my-channel",
+              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ items: [] })
+        .mockResolvedValueOnce({
+          items: [item("item-4", "video-1", "Only remaining copy", 3)],
+        })
+        .mockResolvedValueOnce({ items: [{ id: "video-1" }] }),
+    } as unknown as YoutubeAuthRequestClient;
+    const staleCursorClient = new AuthenticatedYoutubeClient(
+      staleCursorRequest,
+    );
+    const staleCursorPlan = await staleCursorClient.planPlaylistCleanup({
+      url: "https://www.youtube.com/playlist?list=PL123456789",
+      cursor: plan.next_cursor,
+      limit: 50,
+      maxPages: 5,
+    });
+    expect(staleCursorPlan.removals).toEqual([]);
   });
 });

@@ -231,6 +231,10 @@ export class AuthenticatedYoutubeClient {
     let nextPageToken: string | undefined;
     let fetchedCount = 0;
     let searchedPages = 0;
+    const seen = await this.getValidatedRetainedItems(
+      playlist.id,
+      cursor?.retained || [],
+    );
     const allItems: YoutubePlaylistItemPage["items"] = [];
     do {
       const response = await this.requestClient.request<PlaylistItemsResponse>({
@@ -252,7 +256,6 @@ export class AuthenticatedYoutubeClient {
     const unavailableVideoIds = await this.getUnavailableVideoIds(
       allItems.flatMap((item) => (item.video_id ? [item.video_id] : [])),
     );
-    const seen = new Map(cursor?.retained);
     const removals: YoutubePlaylistCleanupPlan["removals"] = [];
     const unavailable_items: YoutubePlaylistCleanupPlan["unavailable_items"] =
       [];
@@ -531,6 +534,39 @@ export class AuthenticatedYoutubeClient {
     return new Set(
       uniqueVideoIds.filter((videoId) => !availableVideoIds.has(videoId)),
     );
+  }
+
+  private async getValidatedRetainedItems(
+    playlistId: string,
+    retained: Array<[string, string]>,
+  ): Promise<Map<string, string>> {
+    const expectedVideoIdsByItemId = new Map(
+      retained.map(([videoId, playlistItemId]) => [playlistItemId, videoId]),
+    );
+    const validated = new Map<string, string>();
+    const playlistItemIds = [...expectedVideoIdsByItemId.keys()];
+    for (let index = 0; index < playlistItemIds.length; index += 50) {
+      const response = await this.requestClient.request<PlaylistItemsResponse>({
+        method: "GET",
+        path: "/playlistItems",
+        query: new URLSearchParams({
+          part: "snippet,contentDetails",
+          id: playlistItemIds.slice(index, index + 50).join(","),
+        }),
+      });
+      for (const item of response.items || []) {
+        const videoId =
+          item.contentDetails?.videoId || item.snippet.resourceId?.videoId;
+        if (
+          item.snippet.playlistId === playlistId &&
+          videoId &&
+          expectedVideoIdsByItemId.get(item.id) === videoId
+        ) {
+          validated.set(videoId, item.id);
+        }
+      }
+    }
+    return validated;
   }
 
   private async getPlaylistItem(
