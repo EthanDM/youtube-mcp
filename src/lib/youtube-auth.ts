@@ -269,12 +269,12 @@ export class AuthenticatedYoutubeClient {
         continue;
       }
       const retained = seen.get(item.video_id);
-      if (retained)
+      if (retained && retained !== item.playlist_item_id)
         removals.push({
           playlist_item_id: item.playlist_item_id,
           reason: "duplicate_video",
         });
-      else seen.set(item.video_id, item.playlist_item_id);
+      else if (!retained) seen.set(item.video_id, item.playlist_item_id);
     }
     const duplicate_groups = [...seen].flatMap(
       ([video_id, retained_playlist_item_id]) => {

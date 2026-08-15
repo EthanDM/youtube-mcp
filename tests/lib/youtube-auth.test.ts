@@ -316,5 +316,38 @@ describe("AuthenticatedYoutubeClient", () => {
       maxPages: 5,
     });
     expect(staleCursorPlan.removals).toEqual([]);
+
+    const reappearingItemRequest = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [playlist] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "my-channel",
+              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          items: [item("item-1", "video-1", "Deleted video", 3)],
+        })
+        .mockResolvedValueOnce({
+          items: [item("item-1", "video-1", "Deleted video", 3)],
+        })
+        .mockResolvedValueOnce({ items: [{ id: "video-1" }] }),
+    } as unknown as YoutubeAuthRequestClient;
+    const reappearingItemClient = new AuthenticatedYoutubeClient(
+      reappearingItemRequest,
+    );
+    const reappearingItemPlan = await reappearingItemClient.planPlaylistCleanup(
+      {
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        cursor: plan.next_cursor,
+        limit: 50,
+        maxPages: 5,
+      },
+    );
+    expect(reappearingItemPlan.removals).toEqual([]);
   });
 });
