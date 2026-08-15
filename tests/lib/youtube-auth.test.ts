@@ -483,6 +483,7 @@ describe("AuthenticatedYoutubeClient", () => {
       publicItem("source-2", "video-1", 1),
     ];
     const publicClient = {
+      getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
       getPlaylistItems: vi.fn().mockResolvedValue({
         playlist: normalizedPlaylist("source", "Source"),
         items: sourceItems,
@@ -496,7 +497,6 @@ describe("AuthenticatedYoutubeClient", () => {
     };
     const requestMock = vi
       .fn()
-      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
       .mockResolvedValueOnce({ id: "target" })
       .mockResolvedValueOnce({ items: [target] })
       .mockResolvedValueOnce({ id: "copy-1" })
@@ -539,6 +539,7 @@ describe("AuthenticatedYoutubeClient", () => {
 
   it("skips unavailable source videos before creating a clone", async () => {
     const publicClient = {
+      getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set(["missing"])),
       getPlaylistItems: vi.fn().mockResolvedValue({
         playlist: normalizedPlaylist("source", "Source"),
         items: [publicItem("source-1", "missing", 0)],
@@ -567,6 +568,7 @@ describe("AuthenticatedYoutubeClient", () => {
 
   it("marks an unverified clone insertion as indeterminate", async () => {
     const publicClient = {
+      getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
       getPlaylistItems: vi.fn().mockResolvedValue({
         playlist: normalizedPlaylist("source", "Source"),
         items: [
@@ -580,9 +582,6 @@ describe("AuthenticatedYoutubeClient", () => {
     const target = playlistResource("target", "Copy of Source");
     const requestMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        items: [{ id: "video-1" }, { id: "video-2" }, { id: "video-3" }],
-      })
       .mockResolvedValueOnce({ id: "target" })
       .mockResolvedValueOnce({ items: [target] })
       .mockResolvedValueOnce({ id: "copy-1" })
@@ -623,6 +622,7 @@ describe("AuthenticatedYoutubeClient", () => {
 
   it("retains a fully copied target when final clone verification fails", async () => {
     const publicClient = {
+      getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
       getPlaylistItems: vi.fn().mockResolvedValue({
         playlist: normalizedPlaylist("source", "Source"),
         items: [publicItem("source-1", "video-1", 0)],
@@ -632,7 +632,6 @@ describe("AuthenticatedYoutubeClient", () => {
     const target = playlistResource("target", "Copy of Source");
     const requestMock = vi
       .fn()
-      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
       .mockResolvedValueOnce({ id: "target" })
       .mockResolvedValueOnce({ items: [target] })
       .mockResolvedValueOnce({ id: "copy-1" })
@@ -674,6 +673,7 @@ describe("AuthenticatedYoutubeClient", () => {
   it("bounds a generated clone title to YouTube's playlist limit", async () => {
     const sourceTitle = "x".repeat(150);
     const publicClient = {
+      getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
       getPlaylistItems: vi.fn().mockResolvedValue({
         playlist: normalizedPlaylist("source", sourceTitle),
         items: [publicItem("source-1", "video-1", 0)],
@@ -683,7 +683,6 @@ describe("AuthenticatedYoutubeClient", () => {
     const target = playlistResource("target", `Copy of ${"x".repeat(142)}`);
     const requestMock = vi
       .fn()
-      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
       .mockResolvedValueOnce({ id: "target" })
       .mockResolvedValueOnce({ items: [target] })
       .mockResolvedValueOnce({ id: "copy-1" })

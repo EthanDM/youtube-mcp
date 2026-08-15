@@ -239,6 +239,10 @@ export type YoutubePlaylistCleanupApplyResult = {
   remaining_playlist_item_ids: string[];
   indeterminate_playlist_item_ids: string[];
   complete: boolean;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
   failure?: {
     playlist_item_id: string;
     code: string;
@@ -270,6 +274,11 @@ export type YoutubePlaylistCloneResult = {
       }
     | {
         stage: "target_playlist_verification";
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "playlist_creation_verification";
         code: string;
         message: string;
       };

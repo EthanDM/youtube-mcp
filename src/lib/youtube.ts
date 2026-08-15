@@ -125,6 +125,26 @@ export class YoutubeClient {
     return normalizeVideo(video, parsed.canonicalUrl);
   }
 
+  async getUnavailableVideoIds(videoIds: string[]): Promise<Set<string>> {
+    const uniqueVideoIds = [...new Set(videoIds)];
+    const availableVideoIds = new Set<string>();
+    for (let index = 0; index < uniqueVideoIds.length; index += 50) {
+      const batch = uniqueVideoIds.slice(index, index + 50);
+      const response = await this.requestClient.get<VideoResponse>(
+        "/videos",
+        new URLSearchParams({
+          part: "id",
+          id: batch.join(","),
+          maxResults: String(batch.length),
+        }),
+      );
+      for (const video of response.items || []) availableVideoIds.add(video.id);
+    }
+    return new Set(
+      uniqueVideoIds.filter((videoId) => !availableVideoIds.has(videoId)),
+    );
+  }
+
   async getComments(input: GetCommentsInput): Promise<YoutubeCommentPage> {
     const parsed = parseYoutubeUrl(input.url);
     const { comments, nextPageToken } = await this.getCommentPage({

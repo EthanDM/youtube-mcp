@@ -39,6 +39,21 @@ type CleanupCursor = {
   retained: Array<[string, string]>;
 };
 
+class PlaylistCreationVerificationError extends YoutubeMcpError {
+  constructor(
+    error: unknown,
+    readonly playlist: YoutubePlaylist,
+  ) {
+    super(
+      error instanceof Error
+        ? error.message
+        : "YouTube playlist creation verification failed.",
+      error instanceof YoutubeMcpError ? error.code : "playlist_write_failed",
+    );
+    this.name = "PlaylistCreationVerificationError";
+  }
+}
+
 function parseCleanupCursor(cursor: string): CleanupCursor {
   try {
     const value: unknown = JSON.parse(
@@ -88,7 +103,10 @@ function createCleanupCursor(
 export class AuthenticatedYoutubeClient {
   constructor(
     private readonly requestClient: YoutubeAuthRequestClient,
-    private readonly publicClient?: Pick<YoutubeClient, "getPlaylistItems">,
+    private readonly publicClient?: Pick<
+      YoutubeClient,
+      "getPlaylistItems" | "getUnavailableVideoIds"
+    >,
   ) {}
 
   async getAuthenticatedChannel(): Promise<YoutubeChannel> {
@@ -390,8 +408,9 @@ export class AuthenticatedYoutubeClient {
           playlist.id,
           playlistItemId,
         );
+        const observedPlaylist = await this.observeCleanupPlaylist(playlist);
         return {
-          playlist: await this.getPlaylistById(playlist.id),
+          ...observedPlaylist,
           removed_playlist_item_ids,
           remaining_playlist_item_ids: stillExists
             ? requestedIds.slice(removed_playlist_item_ids.length)
@@ -402,8 +421,9 @@ export class AuthenticatedYoutubeClient {
         };
       }
     }
+    const observedPlaylist = await this.observeCleanupPlaylist(playlist);
     return {
-      playlist: await this.getPlaylistById(playlist.id),
+      ...observedPlaylist,
       removed_playlist_item_ids,
       remaining_playlist_item_ids: [],
       indeterminate_playlist_item_ids: [],
@@ -422,9 +442,13 @@ export class AuthenticatedYoutubeClient {
     maxPages: number;
   }): Promise<YoutubePlaylistCloneResult> {
     const source = await this.readCloneSource(input);
-    const unavailableVideoIds = await this.getUnavailableVideoIds(
-      source.items.flatMap((item) => (item.video_id ? [item.video_id] : [])),
+    const sourceVideoIds = source.items.flatMap((item) =>
+      item.video_id ? [item.video_id] : [],
     );
+    const unavailableVideoIds =
+      input.source_access === "public"
+        ? await this.getPublicUnavailableVideoIds(sourceVideoIds)
+        : await this.getUnavailableVideoIds(sourceVideoIds);
     const skipped_items: YoutubePlaylistCloneResult["skipped_items"] = [];
     const copyable = source.items.filter((item) => {
       if (!item.video_id) {
@@ -451,11 +475,28 @@ export class AuthenticatedYoutubeClient {
       );
     }
 
-    const playlist = await this.createPlaylist({
-      title: input.title || deriveCloneTitle(source.playlist.title),
-      description: input.description ?? source.playlist.description,
-      privacy_status: input.privacy_status,
-    });
+    let playlist: YoutubePlaylist;
+    try {
+      playlist = await this.createPlaylist({
+        title: input.title || deriveCloneTitle(source.playlist.title),
+        description: input.description ?? source.playlist.description,
+        privacy_status: input.privacy_status,
+      });
+    } catch (error) {
+      if (error instanceof PlaylistCreationVerificationError) {
+        return cloneCreationVerificationFailure({
+          sourcePlaylist: source.playlist,
+          fetchedCount: source.fetchedCount,
+          searchedPages: source.searchedPages,
+          nextPageToken: source.nextPageToken,
+          playlist: error.playlist,
+          skippedItems: skipped_items,
+          maxPages: input.maxPages,
+          error,
+        });
+      }
+      throw error;
+    }
     const copied_items: YoutubePlaylistItem[] = [];
     for (let index = 0; index < copyable.length; index += 1) {
       const sourceItem = copyable[index]!;
@@ -549,19 +590,26 @@ export class AuthenticatedYoutubeClient {
         status: { privacyStatus: input.privacy_status },
       },
     });
-    const observed = await this.getPlaylistById(response.id);
-    if (
-      observed.title !== input.title ||
-      (input.description !== undefined &&
-        observed.description !== input.description) ||
-      observed.privacy_status !== input.privacy_status
-    ) {
-      throw new YoutubeMcpError(
-        "YouTube did not confirm the created playlist state.",
-        "playlist_write_verification_failed",
+    try {
+      const observed = await this.getPlaylistById(response.id);
+      if (
+        observed.title !== input.title ||
+        (input.description !== undefined &&
+          observed.description !== input.description) ||
+        observed.privacy_status !== input.privacy_status
+      ) {
+        throw new YoutubeMcpError(
+          "YouTube did not confirm the created playlist state.",
+          "playlist_write_verification_failed",
+        );
+      }
+      return observed;
+    } catch (error) {
+      throw new PlaylistCreationVerificationError(
+        error,
+        normalizePlaylist(response),
       );
     }
-    return observed;
   }
 
   async updatePlaylist(input: {
@@ -790,6 +838,18 @@ export class AuthenticatedYoutubeClient {
     return this.publicClient.getPlaylistItems(input);
   }
 
+  private async getPublicUnavailableVideoIds(
+    videoIds: string[],
+  ): Promise<Set<string>> {
+    if (!this.publicClient) {
+      throw new YoutubeMcpError(
+        "Public playlist cloning is unavailable in this server configuration.",
+        "playlist_clone_unavailable",
+      );
+    }
+    return this.publicClient.getUnavailableVideoIds(videoIds);
+  }
+
   private async getOwnedPlaylist(url: string): Promise<YoutubePlaylist> {
     const parsed = parseYoutubePlaylistUrl(url);
     const response = await this.requestClient.request<PlaylistResponse>({
@@ -828,6 +888,33 @@ export class AuthenticatedYoutubeClient {
         "playlist_write_verification_failed",
       );
     return normalizePlaylist(playlist);
+  }
+
+  private async observeCleanupPlaylist(
+    playlist: YoutubePlaylist,
+  ): Promise<
+    Pick<
+      YoutubePlaylistCleanupApplyResult,
+      "playlist" | "metadata_verification"
+    >
+  > {
+    try {
+      return { playlist: await this.getPlaylistById(playlist.id) };
+    } catch (error) {
+      return {
+        playlist,
+        metadata_verification: {
+          code:
+            error instanceof YoutubeMcpError
+              ? error.code
+              : "playlist_write_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "YouTube playlist metadata verification failed.",
+        },
+      };
+    }
   }
 
   private async getUnavailableVideoIds(
@@ -964,6 +1051,42 @@ function cloneFinalVerificationFailure(input: {
         input.error instanceof Error
           ? input.error.message
           : "YouTube playlist verification failed.",
+    },
+  };
+}
+
+function cloneCreationVerificationFailure(input: {
+  sourcePlaylist: YoutubePlaylist;
+  fetchedCount: number;
+  searchedPages: number;
+  nextPageToken?: string;
+  playlist: YoutubePlaylist;
+  skippedItems: YoutubePlaylistCloneResult["skipped_items"];
+  maxPages: number;
+  error: unknown;
+}): YoutubePlaylistCloneResult {
+  return {
+    source_playlist: input.sourcePlaylist,
+    playlist: input.playlist,
+    copied_items: [],
+    remaining_video_ids: [],
+    indeterminate_video_ids: [],
+    skipped_items: input.skippedItems,
+    fetched_count: input.fetchedCount,
+    searched_pages: input.searchedPages,
+    max_pages: input.maxPages,
+    complete: false,
+    remaining_source_page_token: input.nextPageToken,
+    failure: {
+      stage: "playlist_creation_verification",
+      code:
+        input.error instanceof YoutubeMcpError
+          ? input.error.code
+          : "playlist_write_failed",
+      message:
+        input.error instanceof Error
+          ? input.error.message
+          : "YouTube playlist creation verification failed.",
     },
   };
 }
