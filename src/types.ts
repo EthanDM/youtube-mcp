@@ -262,11 +262,17 @@ export type YoutubePlaylistCloneResult = {
   max_pages: number;
   complete: boolean;
   remaining_source_page_token?: string;
-  failure?: {
-    video_id: string;
-    code: string;
-    message: string;
-  };
+  failure?:
+    | {
+        video_id: string;
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "target_playlist_verification";
+        code: string;
+        message: string;
+      };
 };
 
 export type YoutubeTranscriptSearchResult = {

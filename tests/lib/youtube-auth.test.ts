@@ -424,7 +424,15 @@ describe("AuthenticatedYoutubeClient", () => {
           "youtube_api_error",
         ),
       )
-      .mockResolvedValueOnce({ items: [] });
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...playlist,
+            contentDetails: { itemCount: 1 },
+          },
+        ],
+      });
     const client = new AuthenticatedYoutubeClient({
       request: requestMock,
     } as unknown as YoutubeAuthRequestClient);
@@ -609,6 +617,56 @@ describe("AuthenticatedYoutubeClient", () => {
       failure: {
         video_id: "video-2",
         code: "playlist_write_verification_failed",
+      },
+    });
+  });
+
+  it("retains a fully copied target when final clone verification fails", async () => {
+    const publicClient = {
+      getPlaylistItems: vi.fn().mockResolvedValue({
+        playlist: normalizedPlaylist("source", "Source"),
+        items: [publicItem("source-1", "video-1", 0)],
+        fetched_count: 1,
+      }),
+    };
+    const target = playlistResource("target", "Copy of Source");
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
+      .mockResolvedValueOnce({ id: "target" })
+      .mockResolvedValueOnce({ items: [target] })
+      .mockResolvedValueOnce({ id: "copy-1" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("copy-1", "video-1", 0, "target")],
+      })
+      .mockRejectedValueOnce(
+        new YoutubeMcpError(
+          "YouTube could not verify the copied playlist.",
+          "youtube_api_error",
+        ),
+      );
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    await expect(
+      client.clonePlaylist({
+        source_url: playlistUrl,
+        source_access: "public",
+        privacy_status: "private",
+        limit: 50,
+        maxPages: 1,
+      }),
+    ).resolves.toMatchObject({
+      playlist: { id: "target" },
+      copied_items: [{ playlist_item_id: "copy-1", video_id: "video-1" }],
+      remaining_video_ids: [],
+      indeterminate_video_ids: [],
+      complete: false,
+      failure: {
+        stage: "target_playlist_verification",
+        code: "youtube_api_error",
       },
     });
   });

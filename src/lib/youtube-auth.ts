@@ -391,7 +391,7 @@ export class AuthenticatedYoutubeClient {
           playlistItemId,
         );
         return {
-          playlist,
+          playlist: await this.getPlaylistById(playlist.id),
           removed_playlist_item_ids,
           remaining_playlist_item_ids: stillExists
             ? requestedIds.slice(removed_playlist_item_ids.length)
@@ -403,7 +403,7 @@ export class AuthenticatedYoutubeClient {
       }
     }
     return {
-      playlist,
+      playlist: await this.getPlaylistById(playlist.id),
       removed_playlist_item_ids,
       remaining_playlist_item_ids: [],
       indeterminate_playlist_item_ids: [],
@@ -482,15 +482,40 @@ export class AuthenticatedYoutubeClient {
         };
       }
     }
-    const observedPlaylist = await this.getPlaylistById(playlist.id);
+    let observedPlaylist: YoutubePlaylist;
+    try {
+      observedPlaylist = await this.getPlaylistById(playlist.id);
+    } catch (error) {
+      return cloneFinalVerificationFailure({
+        sourcePlaylist: source.playlist,
+        fetchedCount: source.fetchedCount,
+        searchedPages: source.searchedPages,
+        nextPageToken: source.nextPageToken,
+        playlist,
+        copiedItems: copied_items,
+        skippedItems: skipped_items,
+        maxPages: input.maxPages,
+        error,
+      });
+    }
     if (
       observedPlaylist.item_count !== undefined &&
       observedPlaylist.item_count !== copied_items.length
     ) {
-      throw new YoutubeMcpError(
-        "YouTube did not confirm the copied playlist item count.",
-        "playlist_write_verification_failed",
-      );
+      return cloneFinalVerificationFailure({
+        sourcePlaylist: source.playlist,
+        fetchedCount: source.fetchedCount,
+        searchedPages: source.searchedPages,
+        nextPageToken: source.nextPageToken,
+        playlist,
+        copiedItems: copied_items,
+        skippedItems: skipped_items,
+        maxPages: input.maxPages,
+        error: new YoutubeMcpError(
+          "YouTube did not confirm the copied playlist item count.",
+          "playlist_write_verification_failed",
+        ),
+      });
     }
     return {
       source_playlist: source.playlist,
@@ -904,4 +929,41 @@ function toWriteFailure<T extends "playlist_item_id" | "video_id">(
 function deriveCloneTitle(sourceTitle: string): string {
   const prefix = "Copy of ";
   return `${prefix}${sourceTitle.slice(0, 150 - prefix.length)}`;
+}
+
+function cloneFinalVerificationFailure(input: {
+  sourcePlaylist: YoutubePlaylist;
+  fetchedCount: number;
+  searchedPages: number;
+  nextPageToken?: string;
+  playlist: YoutubePlaylist;
+  copiedItems: YoutubePlaylistItem[];
+  skippedItems: YoutubePlaylistCloneResult["skipped_items"];
+  maxPages: number;
+  error: unknown;
+}): YoutubePlaylistCloneResult {
+  return {
+    source_playlist: input.sourcePlaylist,
+    playlist: input.playlist,
+    copied_items: input.copiedItems,
+    remaining_video_ids: [],
+    indeterminate_video_ids: [],
+    skipped_items: input.skippedItems,
+    fetched_count: input.fetchedCount,
+    searched_pages: input.searchedPages,
+    max_pages: input.maxPages,
+    complete: false,
+    remaining_source_page_token: input.nextPageToken,
+    failure: {
+      stage: "target_playlist_verification",
+      code:
+        input.error instanceof YoutubeMcpError
+          ? input.error.code
+          : "playlist_write_failed",
+      message:
+        input.error instanceof Error
+          ? input.error.message
+          : "YouTube playlist verification failed.",
+    },
+  };
 }
