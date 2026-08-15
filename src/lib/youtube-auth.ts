@@ -386,12 +386,17 @@ export class AuthenticatedYoutubeClient {
         await this.deletePlaylistItem(playlist.id, playlistItemId);
         removed_playlist_item_ids.push(playlistItemId);
       } catch (error) {
+        const stillExists = await this.playlistItemStillExists(
+          playlist.id,
+          playlistItemId,
+        );
         return {
           playlist,
           removed_playlist_item_ids,
-          remaining_playlist_item_ids: requestedIds.slice(
-            removed_playlist_item_ids.length,
-          ),
+          remaining_playlist_item_ids: stillExists
+            ? requestedIds.slice(removed_playlist_item_ids.length)
+            : requestedIds.slice(removed_playlist_item_ids.length + 1),
+          indeterminate_playlist_item_ids: stillExists ? [] : [playlistItemId],
           complete: false,
           failure: toWriteFailure("playlist_item_id", playlistItemId, error),
         };
@@ -401,6 +406,7 @@ export class AuthenticatedYoutubeClient {
       playlist,
       removed_playlist_item_ids,
       remaining_playlist_item_ids: [],
+      indeterminate_playlist_item_ids: [],
       complete: true,
     };
   }
@@ -446,7 +452,7 @@ export class AuthenticatedYoutubeClient {
     }
 
     const playlist = await this.createPlaylist({
-      title: input.title || `Copy of ${source.playlist.title}`,
+      title: input.title || deriveCloneTitle(source.playlist.title),
       description: input.description ?? source.playlist.description,
       privacy_status: input.privacy_status,
     });
@@ -463,8 +469,9 @@ export class AuthenticatedYoutubeClient {
           playlist,
           copied_items,
           remaining_video_ids: copyable
-            .slice(index)
+            .slice(index + 1)
             .flatMap((item) => (item.video_id ? [item.video_id] : [])),
+          indeterminate_video_ids: [sourceItem.video_id!],
           skipped_items,
           fetched_count: source.fetchedCount,
           searched_pages: source.searchedPages,
@@ -641,6 +648,19 @@ export class AuthenticatedYoutubeClient {
         "YouTube did not confirm playlist item removal.",
         "playlist_write_verification_failed",
       );
+  }
+
+  /** A failed delete verification is ambiguous until a separate read proves the item remains. */
+  private async playlistItemStillExists(
+    playlistId: string,
+    playlistItemId: string,
+  ): Promise<boolean> {
+    try {
+      await this.getPlaylistItem(playlistId, playlistItemId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async reorderPlaylistItem(input: {
@@ -879,4 +899,9 @@ function toWriteFailure<T extends "playlist_item_id" | "video_id">(
         ? error.message
         : "YouTube playlist mutation failed.",
   } as Record<T, string> & { code: string; message: string };
+}
+
+function deriveCloneTitle(sourceTitle: string): string {
+  const prefix = "Copy of ";
+  return `${prefix}${sourceTitle.slice(0, 150 - prefix.length)}`;
 }

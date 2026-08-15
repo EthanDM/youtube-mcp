@@ -237,6 +237,7 @@ export type YoutubePlaylistCleanupApplyResult = {
   playlist: YoutubePlaylist;
   removed_playlist_item_ids: string[];
   remaining_playlist_item_ids: string[];
+  indeterminate_playlist_item_ids: string[];
   complete: boolean;
   failure?: {
     playlist_item_id: string;
@@ -250,6 +251,7 @@ export type YoutubePlaylistCloneResult = {
   playlist: YoutubePlaylist;
   copied_items: YoutubePlaylistItem[];
   remaining_video_ids?: string[];
+  indeterminate_video_ids?: string[];
   skipped_items: Array<{
     playlist_item_id: string;
     video_id?: string;

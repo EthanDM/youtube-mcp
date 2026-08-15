@@ -423,7 +423,8 @@ describe("AuthenticatedYoutubeClient", () => {
           "YouTube rejected the deletion.",
           "youtube_api_error",
         ),
-      );
+      )
+      .mockResolvedValueOnce({ items: [] });
     const client = new AuthenticatedYoutubeClient({
       request: requestMock,
     } as unknown as YoutubeAuthRequestClient);
@@ -438,7 +439,8 @@ describe("AuthenticatedYoutubeClient", () => {
       }),
     ).resolves.toMatchObject({
       removed_playlist_item_ids: ["item-1"],
-      remaining_playlist_item_ids: ["item-2"],
+      remaining_playlist_item_ids: [],
+      indeterminate_playlist_item_ids: ["item-2"],
       complete: false,
       failure: { playlist_item_id: "item-2", code: "youtube_api_error" },
     });
@@ -553,6 +555,107 @@ describe("AuthenticatedYoutubeClient", () => {
     expect(
       requestMock.mock.calls.some(([request]) => request.method === "POST"),
     ).toBe(false);
+  });
+
+  it("marks an unverified clone insertion as indeterminate", async () => {
+    const publicClient = {
+      getPlaylistItems: vi.fn().mockResolvedValue({
+        playlist: normalizedPlaylist("source", "Source"),
+        items: [
+          publicItem("source-1", "video-1", 0),
+          publicItem("source-2", "video-2", 1),
+          publicItem("source-3", "video-3", 2),
+        ],
+        fetched_count: 3,
+      }),
+    };
+    const target = playlistResource("target", "Copy of Source");
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [{ id: "video-1" }, { id: "video-2" }, { id: "video-3" }],
+      })
+      .mockResolvedValueOnce({ id: "target" })
+      .mockResolvedValueOnce({ items: [target] })
+      .mockResolvedValueOnce({ id: "copy-1" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("copy-1", "video-1", 0, "target")],
+      })
+      .mockResolvedValueOnce({ id: "copy-2" })
+      .mockRejectedValueOnce(
+        new YoutubeMcpError(
+          "YouTube could not verify the insertion.",
+          "playlist_write_verification_failed",
+        ),
+      );
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    await expect(
+      client.clonePlaylist({
+        source_url: playlistUrl,
+        source_access: "public",
+        privacy_status: "private",
+        limit: 50,
+        maxPages: 1,
+      }),
+    ).resolves.toMatchObject({
+      copied_items: [{ playlist_item_id: "copy-1", video_id: "video-1" }],
+      indeterminate_video_ids: ["video-2"],
+      remaining_video_ids: ["video-3"],
+      complete: false,
+      failure: {
+        video_id: "video-2",
+        code: "playlist_write_verification_failed",
+      },
+    });
+  });
+
+  it("bounds a generated clone title to YouTube's playlist limit", async () => {
+    const sourceTitle = "x".repeat(150);
+    const publicClient = {
+      getPlaylistItems: vi.fn().mockResolvedValue({
+        playlist: normalizedPlaylist("source", sourceTitle),
+        items: [publicItem("source-1", "video-1", 0)],
+        fetched_count: 1,
+      }),
+    };
+    const target = playlistResource("target", `Copy of ${"x".repeat(142)}`);
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
+      .mockResolvedValueOnce({ id: "target" })
+      .mockResolvedValueOnce({ items: [target] })
+      .mockResolvedValueOnce({ id: "copy-1" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("copy-1", "video-1", 0, "target")],
+      })
+      .mockResolvedValueOnce({ items: [target] });
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    await client.clonePlaylist({
+      source_url: playlistUrl,
+      source_access: "public",
+      privacy_status: "private",
+      limit: 50,
+      maxPages: 1,
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "POST",
+        body: expect.objectContaining({
+          snippet: expect.objectContaining({
+            title: `Copy of ${"x".repeat(142)}`,
+          }),
+        }),
+      }),
+    );
   });
 });
 
