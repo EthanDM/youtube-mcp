@@ -253,12 +253,28 @@ export class AuthenticatedYoutubeClient {
       nextPageToken = response.nextPageToken;
       pageToken = nextPageToken;
     } while (pageToken && searchedPages < input.maxPages);
-    const unavailableVideoIds = await this.getUnavailableVideoIds(
-      allItems.flatMap((item) => (item.video_id ? [item.video_id] : [])),
-    );
+    const unavailableVideoIds = await this.getUnavailableVideoIds([
+      ...allItems.flatMap((item) => (item.video_id ? [item.video_id] : [])),
+      ...seen.keys(),
+    ]);
     const removals: YoutubePlaylistCleanupPlan["removals"] = [];
     const unavailable_items: YoutubePlaylistCleanupPlan["unavailable_items"] =
       [];
+    const currentItemIds = new Set(
+      allItems.map((item) => item.playlist_item_id),
+    );
+    for (const [videoId, item] of seen) {
+      if (
+        unavailableVideoIds.has(videoId) &&
+        !currentItemIds.has(item.playlist_item_id)
+      ) {
+        unavailable_items.push(item);
+        removals.push({
+          playlist_item_id: item.playlist_item_id,
+          reason: "unavailable_video",
+        });
+      }
+    }
     for (const item of allItems) {
       if (!item.video_id || unavailableVideoIds.has(item.video_id)) {
         unavailable_items.push(item);
@@ -269,29 +285,33 @@ export class AuthenticatedYoutubeClient {
         continue;
       }
       const retained = seen.get(item.video_id);
-      if (retained && retained !== item.playlist_item_id)
+      if (retained && retained.playlist_item_id !== item.playlist_item_id)
         removals.push({
           playlist_item_id: item.playlist_item_id,
           reason: "duplicate_video",
         });
-      else if (!retained) seen.set(item.video_id, item.playlist_item_id);
+      else if (!retained) seen.set(item.video_id, item);
     }
-    const duplicate_groups = [...seen].flatMap(
-      ([video_id, retained_playlist_item_id]) => {
-        const removal_playlist_item_ids = removals
-          .filter((removal) => removal.reason === "duplicate_video")
-          .map((removal) => removal.playlist_item_id)
-          .filter((id) =>
-            allItems.some(
-              (item) =>
-                item.playlist_item_id === id && item.video_id === video_id,
-            ),
-          );
-        return removal_playlist_item_ids.length
-          ? [{ video_id, retained_playlist_item_id, removal_playlist_item_ids }]
-          : [];
-      },
-    );
+    const duplicate_groups = [...seen].flatMap(([video_id, retained]) => {
+      const removal_playlist_item_ids = removals
+        .filter((removal) => removal.reason === "duplicate_video")
+        .map((removal) => removal.playlist_item_id)
+        .filter((id) =>
+          allItems.some(
+            (item) =>
+              item.playlist_item_id === id && item.video_id === video_id,
+          ),
+        );
+      return removal_playlist_item_ids.length
+        ? [
+            {
+              video_id,
+              retained_playlist_item_id: retained.playlist_item_id,
+              removal_playlist_item_ids,
+            },
+          ]
+        : [];
+    });
     return {
       playlist,
       removals,
@@ -299,7 +319,16 @@ export class AuthenticatedYoutubeClient {
       unavailable_items,
       next_page_token: nextPageToken,
       next_cursor: nextPageToken
-        ? createCleanupCursor(playlist.id, nextPageToken, seen)
+        ? createCleanupCursor(
+            playlist.id,
+            nextPageToken,
+            new Map(
+              [...seen].map(([videoId, item]) => [
+                videoId,
+                item.playlist_item_id,
+              ]),
+            ),
+          )
         : undefined,
       fetched_count: fetchedCount,
       searched_pages: searchedPages,
@@ -543,11 +572,11 @@ export class AuthenticatedYoutubeClient {
   private async getValidatedRetainedItems(
     playlistId: string,
     retained: Array<[string, string]>,
-  ): Promise<Map<string, string>> {
+  ): Promise<Map<string, YoutubePlaylistItem>> {
     const expectedVideoIdsByItemId = new Map(
       retained.map(([videoId, playlistItemId]) => [playlistItemId, videoId]),
     );
-    const validated = new Map<string, string>();
+    const validated = new Map<string, YoutubePlaylistItem>();
     const playlistItemIds = [...expectedVideoIdsByItemId.keys()];
     for (let index = 0; index < playlistItemIds.length; index += 50) {
       const response = await this.requestClient.request<PlaylistItemsResponse>({
@@ -567,7 +596,7 @@ export class AuthenticatedYoutubeClient {
           videoId &&
           expectedVideoIdsByItemId.get(item.id) === videoId
         ) {
-          validated.set(videoId, item.id);
+          validated.set(videoId, normalizePublicPlaylistItem(item));
         }
       }
     }

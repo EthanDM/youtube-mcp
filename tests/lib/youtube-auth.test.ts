@@ -354,5 +354,42 @@ describe("AuthenticatedYoutubeClient", () => {
       },
     );
     expect(reappearingItemPlan.removals).toEqual([]);
+
+    const retainedUnavailableRequest = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ items: [playlist] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "my-channel",
+              snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          items: [item("item-1", "video-1", "Original", 0)],
+        })
+        .mockResolvedValueOnce({
+          items: [item("item-4", "video-2", "Current", 3)],
+        })
+        .mockResolvedValueOnce({ items: [{ id: "video-2" }] }),
+    } as unknown as YoutubeAuthRequestClient;
+    const retainedUnavailableClient = new AuthenticatedYoutubeClient(
+      retainedUnavailableRequest,
+    );
+    const retainedUnavailablePlan =
+      await retainedUnavailableClient.planPlaylistCleanup({
+        url: "https://www.youtube.com/playlist?list=PL123456789",
+        cursor: plan.next_cursor,
+        limit: 50,
+        maxPages: 5,
+      });
+    expect(retainedUnavailablePlan.removals).toEqual([
+      { playlist_item_id: "item-1", reason: "unavailable_video" },
+    ]);
+    expect(retainedUnavailablePlan.unavailable_items).toEqual([
+      expect.objectContaining({ playlist_item_id: "item-1" }),
+    ]);
   });
 });
