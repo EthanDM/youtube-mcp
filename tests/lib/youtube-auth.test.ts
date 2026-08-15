@@ -279,6 +279,14 @@ describe("AuthenticatedYoutubeClient", () => {
           request.query.get("pageToken") === "page-2",
       );
     expect(playlistItemsRequest?.query.get("pageToken")).toBe("page-2");
+    const retainedItemsRequest = continuationRequestMock.mock.calls
+      .map(([request]) => request)
+      .find(
+        (request) =>
+          request.path === "/playlistItems" &&
+          request.query.get("id") === "item-1",
+      );
+    expect(retainedItemsRequest?.query.get("maxResults")).toBe("1");
 
     const staleCursorRequest = {
       request: vi

@@ -552,6 +552,7 @@ export class AuthenticatedYoutubeClient {
         query: new URLSearchParams({
           part: "snippet,contentDetails",
           id: playlistItemIds.slice(index, index + 50).join(","),
+          maxResults: String(Math.min(50, playlistItemIds.length - index)),
         }),
       });
       for (const item of response.items || []) {
