@@ -563,7 +563,7 @@ export class AuthenticatedYoutubeClient {
         fetchedCount: source.fetchedCount,
         searchedPages: source.searchedPages,
         nextPageToken: source.nextPageToken,
-        playlist,
+        playlist: observedPlaylist,
         copiedItems: copied_items,
         skippedItems: skipped_items,
         maxPages: input.maxPages,
