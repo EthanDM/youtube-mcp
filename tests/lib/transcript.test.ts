@@ -115,6 +115,65 @@ describe("TranscriptClient", () => {
     });
   });
 
+  it("searches only the requested transcript window and shares retrieval cursors", async () => {
+    const client = createClient({
+      subtitles: {
+        en: [{ url: "https://captions.example/creator", ext: "json3" }],
+      },
+    });
+    const first = await client.getTranscript({ url: videoUrl, maxSegments: 1 });
+    const search = await client.searchTranscript({
+      url: videoUrl,
+      matchTerms: ["second", "welcome"],
+      cursor: first.transcript.next_cursor,
+      maxSegments: 1,
+    });
+    expect(search).toMatchObject({
+      transcript: {
+        segments: [expect.objectContaining({ text: "Second caption" })],
+        matched_terms: ["second"],
+        searched_segments: 1,
+        total_segments: 2,
+        complete: true,
+        search_scope: "retrieved_segments_only",
+      },
+    });
+  });
+
+  it("returns an empty match list while preserving the selected track page", async () => {
+    const client = createClient({
+      subtitles: {
+        en: [{ url: "https://captions.example/creator", ext: "json3" }],
+      },
+    });
+    await expect(
+      client.searchTranscript({
+        url: videoUrl,
+        matchTerms: ["absent"],
+        maxSegments: 1,
+      }),
+    ).resolves.toMatchObject({
+      transcript: { segments: [], matched_count: 0, complete: false },
+    });
+  });
+
+  it("rejects a transcript-search cursor from another video", async () => {
+    const client = createClient({
+      subtitles: {
+        en: [{ url: "https://captions.example/creator", ext: "json3" }],
+      },
+    });
+    const first = await client.getTranscript({ url: videoUrl, maxSegments: 1 });
+    await expect(
+      client.searchTranscript({
+        url: "https://www.youtube.com/watch?v=9bZkp7q19f0",
+        matchTerms: ["caption"],
+        cursor: first.transcript.next_cursor,
+        maxSegments: 1,
+      }),
+    ).rejects.toMatchObject({ code: "transcript_cursor_invalid" });
+  });
+
   it("forwards metadata and selected-format headers when fetching captions", async () => {
     let receivedHeaders: HeadersInit | undefined;
     const client = new TranscriptClient(

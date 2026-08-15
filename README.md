@@ -18,8 +18,10 @@ The repository is public, but the server is intentionally local and single-user:
 - `youtube_get_playlist_items`
 - `youtube_find_playlist_items`
 - `youtube_plan_playlist_cleanup`
+- `youtube_apply_playlist_cleanup`
 - `youtube_list_transcript_languages`
 - `youtube_get_transcript`
+- `youtube_search_transcript`
 - `youtube_get_authenticated_channel`
 - `youtube_list_owned_playlists`
 - `youtube_get_owned_playlist_items`
@@ -28,6 +30,7 @@ The repository is public, but the server is intentionally local and single-user:
 - `youtube_add_playlist_video`
 - `youtube_remove_playlist_item`
 - `youtube_reorder_playlist_item`
+- `youtube_clone_playlist`
 
 Public research tools remain read-only. Authenticated V2 tools manage only playlists owned by the locally authenticated channel; the server does not expose account-library reads, media downloads, ASR generation, or background processing.
 
@@ -107,9 +110,13 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 `youtube_get_playlist_items` accepts public `/playlist?list=...` and `/watch?...&list=...` URLs and returns one explicit item page. Items retain their playlist item IDs and positions for safe future authenticated workflows.
 
-`youtube_find_playlist_items` matches literal terms across at most five public or owned-playlist pages. `youtube_plan_playlist_cleanup` is owned-playlist-only and returns deterministic duplicate/unavailable-item removal recommendations; it never mutates and does not infer subjective sequencing. For a truncated cleanup pass, provide its opaque `next_cursor` to continue while retaining duplicate-detection context. Every playlist write is read back and verified before success is returned.
+`youtube_find_playlist_items` matches literal terms across at most five public or owned-playlist pages. `youtube_plan_playlist_cleanup` is owned-playlist-only and returns deterministic duplicate/unavailable-item removal recommendations; it never mutates and does not infer subjective sequencing. For a truncated cleanup pass, provide its opaque `next_cursor` to continue while retaining duplicate-detection context. `youtube_apply_playlist_cleanup` executes only caller-supplied exact planner removals and requires `confirm: true`; it preflights every item before deleting, then reports a stopped partial result if YouTube rejects a later deletion.
+
+`youtube_clone_playlist` requires `confirm: true` and copies at most five explicit source pages (250 items) from a public or owned source into a new owned playlist. It preserves source order and duplicate videos, reports unavailable source items instead of hiding them, and never rolls back a partially copied target. Every playlist write is read back and verified before success is returned.
 
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. Availability can change and is not guaranteed for every public video.
+
+`youtube_search_transcript` applies literal-term matching only to one explicit transcript segment window and returns matching timestamped segments with `search_scope: "retrieved_segments_only"`. It accepts compatible cursors from either transcript tool.
 
 ## Optional ChatGPT connection
 

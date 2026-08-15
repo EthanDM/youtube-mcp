@@ -68,6 +68,15 @@ export const planPlaylistCleanupSchema = z.object({
   maxPages: z.number().int().min(1).max(5).default(5),
   limit: z.number().int().min(1).max(50).default(50),
 });
+const cleanupRemovalSchema = z.object({
+  playlist_item_id: z.string().trim().min(1).max(200),
+  reason: z.enum(["duplicate_video", "unavailable_video"]),
+});
+export const applyPlaylistCleanupSchema = z.object({
+  url: urlSchema,
+  removals: z.array(cleanupRemovalSchema).min(1).max(250),
+  confirm: z.literal(true),
+});
 
 export const getPlaylistItemsSchema = z.object({
   url: urlSchema,
@@ -79,6 +88,13 @@ export const getTranscriptLanguagesSchema = z.object({ url: urlSchema });
 
 export const getTranscriptSchema = z.object({
   url: urlSchema,
+  language: z.string().trim().min(1).max(50).optional(),
+  cursor: pageTokenSchema,
+  maxSegments: z.number().int().min(1).max(500).default(250),
+});
+export const searchTranscriptSchema = z.object({
+  url: urlSchema,
+  matchTerms: z.array(z.string().trim().min(1).max(200)).min(1).max(10),
   language: z.string().trim().min(1).max(50).optional(),
   cursor: pageTokenSchema,
   maxSegments: z.number().int().min(1).max(500).default(250),
@@ -126,6 +142,16 @@ export const reorderPlaylistItemSchema = z.object({
   url: urlSchema,
   playlist_item_id: z.string().trim().min(1).max(200),
   position: z.number().int().min(0),
+  confirm: z.literal(true),
+});
+export const clonePlaylistSchema = z.object({
+  source_url: urlSchema,
+  source_access: z.enum(["public", "owned"]).default("public"),
+  title: z.string().trim().min(1).max(150).optional(),
+  description: z.string().max(5_000).optional(),
+  privacy_status: playlistPrivacySchema.default("private"),
+  limit: z.number().int().min(1).max(50).default(50),
+  maxPages: z.number().int().min(1).max(5).default(1),
   confirm: z.literal(true),
 });
 
@@ -246,6 +272,16 @@ export function createToolHandlers(
         return toolError(error);
       }
     },
+    applyPlaylistCleanup: async (input: unknown) => {
+      try {
+        const parsed = applyPlaylistCleanupSchema.parse(input);
+        return toolSuccess(
+          await getAuthenticatedClient().applyPlaylistCleanup(parsed),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
     getTranscriptLanguages: async (input: unknown) => {
       try {
         const parsed = getTranscriptLanguagesSchema.parse(input);
@@ -258,6 +294,17 @@ export function createToolHandlers(
       try {
         const parsed = getTranscriptSchema.parse(input);
         return toolSuccess(await transcriptClient.getTranscript(parsed));
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    searchTranscript: async (input: unknown) => {
+      try {
+        return toolSuccess(
+          await transcriptClient.searchTranscript(
+            searchTranscriptSchema.parse(input),
+          ),
+        );
       } catch (error) {
         return toolError(error);
       }
@@ -351,6 +398,17 @@ export function createToolHandlers(
             playlistItemId: parsed.playlist_item_id,
             position: parsed.position,
           }),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    clonePlaylist: async (input: unknown) => {
+      try {
+        return toolSuccess(
+          await getAuthenticatedClient().clonePlaylist(
+            clonePlaylistSchema.parse(input),
+          ),
         );
       } catch (error) {
         return toolError(error);

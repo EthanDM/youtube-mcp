@@ -7,6 +7,8 @@ import type {
   YoutubePlaylistItemPage,
   YoutubePlaylistItemSearchResult,
   YoutubePlaylistCleanupPlan,
+  YoutubePlaylistCleanupApplyResult,
+  YoutubePlaylistCloneResult,
 } from "../types.js";
 import {
   normalizeChannel,
@@ -18,6 +20,7 @@ import {
 } from "./youtube-normalizers.js";
 import { parseYoutubePlaylistUrl, parseYoutubeUrl } from "./youtube-url.js";
 import { YoutubeAuthRequestClient } from "./youtube-auth-request-client.js";
+import type { YoutubeClient } from "./youtube.js";
 
 type ChannelResponse = { items?: YoutubeChannelResource[] };
 type PlaylistResponse = {
@@ -83,7 +86,10 @@ function createCleanupCursor(
 
 /** Owns account-scoped playlist reads and writes, including ownership enforcement. */
 export class AuthenticatedYoutubeClient {
-  constructor(private readonly requestClient: YoutubeAuthRequestClient) {}
+  constructor(
+    private readonly requestClient: YoutubeAuthRequestClient,
+    private readonly publicClient?: Pick<YoutubeClient, "getPlaylistItems">,
+  ) {}
 
   async getAuthenticatedChannel(): Promise<YoutubeChannel> {
     const response = await this.requestClient.request<ChannelResponse>({
@@ -339,6 +345,159 @@ export class AuthenticatedYoutubeClient {
     };
   }
 
+  /**
+   * Executes an already reviewed cleanup selection. Validation happens before
+   * the first delete so stale IDs cannot turn a partially changed playlist into
+   * a surprise bulk operation.
+   */
+  async applyPlaylistCleanup(input: {
+    url: string;
+    removals: Array<{
+      playlist_item_id: string;
+      reason: "duplicate_video" | "unavailable_video";
+    }>;
+  }): Promise<YoutubePlaylistCleanupApplyResult> {
+    const playlist = await this.getOwnedPlaylist(input.url);
+    const requestedIds = input.removals.map(
+      (removal) => removal.playlist_item_id,
+    );
+    if (new Set(requestedIds).size !== requestedIds.length) {
+      throw new YoutubeMcpError(
+        "Each cleanup removal must name a playlist item only once.",
+        "playlist_cleanup_stale",
+      );
+    }
+    try {
+      await Promise.all(
+        requestedIds.map((playlistItemId) =>
+          this.getPlaylistItem(playlist.id, playlistItemId),
+        ),
+      );
+    } catch {
+      throw new YoutubeMcpError(
+        "The cleanup plan contains an item that is no longer in this owned playlist.",
+        "playlist_cleanup_stale",
+      );
+    }
+
+    const removed_playlist_item_ids: string[] = [];
+    for (const playlistItemId of requestedIds) {
+      try {
+        await this.deletePlaylistItem(playlist.id, playlistItemId);
+        removed_playlist_item_ids.push(playlistItemId);
+      } catch (error) {
+        return {
+          playlist,
+          removed_playlist_item_ids,
+          remaining_playlist_item_ids: requestedIds.slice(
+            removed_playlist_item_ids.length,
+          ),
+          complete: false,
+          failure: toWriteFailure("playlist_item_id", playlistItemId, error),
+        };
+      }
+    }
+    return {
+      playlist,
+      removed_playlist_item_ids,
+      remaining_playlist_item_ids: [],
+      complete: true,
+    };
+  }
+
+  /** Copies a caller-bounded source prefix and reports rather than hides skips or partial writes. */
+  async clonePlaylist(input: {
+    source_url: string;
+    source_access: "public" | "owned";
+    title?: string;
+    description?: string;
+    privacy_status: "private" | "unlisted" | "public";
+    limit: number;
+    maxPages: number;
+  }): Promise<YoutubePlaylistCloneResult> {
+    const source = await this.readCloneSource(input);
+    const unavailableVideoIds = await this.getUnavailableVideoIds(
+      source.items.flatMap((item) => (item.video_id ? [item.video_id] : [])),
+    );
+    const skipped_items: YoutubePlaylistCloneResult["skipped_items"] = [];
+    const copyable = source.items.filter((item) => {
+      if (!item.video_id) {
+        skipped_items.push({
+          playlist_item_id: item.playlist_item_id,
+          reason: "missing_video_id",
+        });
+        return false;
+      }
+      if (unavailableVideoIds.has(item.video_id)) {
+        skipped_items.push({
+          playlist_item_id: item.playlist_item_id,
+          video_id: item.video_id,
+          reason: "unavailable_video",
+        });
+        return false;
+      }
+      return true;
+    });
+    if (copyable.length === 0) {
+      throw new YoutubeMcpError(
+        "No readable public videos from the selected source pages can be copied.",
+        "playlist_clone_unavailable",
+      );
+    }
+
+    const playlist = await this.createPlaylist({
+      title: input.title || `Copy of ${source.playlist.title}`,
+      description: input.description ?? source.playlist.description,
+      privacy_status: input.privacy_status,
+    });
+    const copied_items: YoutubePlaylistItem[] = [];
+    for (let index = 0; index < copyable.length; index += 1) {
+      const sourceItem = copyable[index]!;
+      try {
+        copied_items.push(
+          await this.addVideoToPlaylist(playlist, sourceItem.video_id!),
+        );
+      } catch (error) {
+        return {
+          source_playlist: source.playlist,
+          playlist,
+          copied_items,
+          remaining_video_ids: copyable
+            .slice(index)
+            .flatMap((item) => (item.video_id ? [item.video_id] : [])),
+          skipped_items,
+          fetched_count: source.fetchedCount,
+          searched_pages: source.searchedPages,
+          max_pages: input.maxPages,
+          complete: false,
+          remaining_source_page_token: source.nextPageToken,
+          failure: toWriteFailure("video_id", sourceItem.video_id!, error),
+        };
+      }
+    }
+    const observedPlaylist = await this.getPlaylistById(playlist.id);
+    if (
+      observedPlaylist.item_count !== undefined &&
+      observedPlaylist.item_count !== copied_items.length
+    ) {
+      throw new YoutubeMcpError(
+        "YouTube did not confirm the copied playlist item count.",
+        "playlist_write_verification_failed",
+      );
+    }
+    return {
+      source_playlist: source.playlist,
+      playlist: observedPlaylist,
+      copied_items,
+      skipped_items,
+      fetched_count: source.fetchedCount,
+      searched_pages: source.searchedPages,
+      max_pages: input.maxPages,
+      complete: !source.nextPageToken,
+      remaining_source_page_token: source.nextPageToken,
+    };
+  }
+
   async createPlaylist(input: {
     title: string;
     description?: string;
@@ -417,6 +576,14 @@ export class AuthenticatedYoutubeClient {
   }): Promise<YoutubePlaylistItem> {
     const playlist = await this.getOwnedPlaylist(input.url);
     const video = parseYoutubeUrl(input.videoUrl);
+    return this.addVideoToPlaylist(playlist, video.videoId, input.position);
+  }
+
+  private async addVideoToPlaylist(
+    playlist: YoutubePlaylist,
+    videoId: string,
+    position?: number,
+  ): Promise<YoutubePlaylistItem> {
     const response =
       await this.requestClient.request<YoutubePlaylistItemResource>({
         method: "POST",
@@ -425,10 +592,8 @@ export class AuthenticatedYoutubeClient {
         body: {
           snippet: {
             playlistId: playlist.id,
-            resourceId: { kind: "youtube#video", videoId: video.videoId },
-            ...(input.position !== undefined
-              ? { position: input.position }
-              : {}),
+            resourceId: { kind: "youtube#video", videoId },
+            ...(position !== undefined ? { position } : {}),
           },
         },
       });
@@ -436,8 +601,8 @@ export class AuthenticatedYoutubeClient {
       await this.getPlaylistItem(playlist.id, response.id),
     );
     if (
-      observed.video_id !== video.videoId ||
-      (input.position !== undefined && observed.position !== input.position)
+      observed.video_id !== videoId ||
+      (position !== undefined && observed.position !== position)
     ) {
       throw new YoutubeMcpError(
         "YouTube did not confirm the added playlist item state.",
@@ -452,23 +617,30 @@ export class AuthenticatedYoutubeClient {
     playlistItemId: string;
   }): Promise<{ playlist_item_id: string; removed: true }> {
     const playlist = await this.getOwnedPlaylist(input.url);
-    await this.getPlaylistItem(playlist.id, input.playlistItemId);
+    await this.deletePlaylistItem(playlist.id, input.playlistItemId);
+    return { playlist_item_id: input.playlistItemId, removed: true };
+  }
+
+  private async deletePlaylistItem(
+    playlistId: string,
+    playlistItemId: string,
+  ): Promise<void> {
+    await this.getPlaylistItem(playlistId, playlistItemId);
     await this.requestClient.request({
       method: "DELETE",
       path: "/playlistItems",
-      query: new URLSearchParams({ id: input.playlistItemId }),
+      query: new URLSearchParams({ id: playlistItemId }),
     });
     const observed = await this.requestClient.request<PlaylistItemsResponse>({
       method: "GET",
       path: "/playlistItems",
-      query: new URLSearchParams({ part: "snippet", id: input.playlistItemId }),
+      query: new URLSearchParams({ part: "snippet", id: playlistItemId }),
     });
     if (observed.items?.length)
       throw new YoutubeMcpError(
         "YouTube did not confirm playlist item removal.",
         "playlist_write_verification_failed",
       );
-    return { playlist_item_id: input.playlistItemId, removed: true };
   }
 
   async reorderPlaylistItem(input: {
@@ -506,6 +678,71 @@ export class AuthenticatedYoutubeClient {
         "playlist_write_verification_failed",
       );
     return normalizePublicPlaylistItem(observed);
+  }
+
+  private async readCloneSource(input: {
+    source_url: string;
+    source_access: "public" | "owned";
+    limit: number;
+    maxPages: number;
+  }): Promise<{
+    playlist: YoutubePlaylist;
+    items: YoutubePlaylistItem[];
+    fetchedCount: number;
+    searchedPages: number;
+    nextPageToken?: string;
+  }> {
+    let pageToken: string | undefined;
+    let playlist: YoutubePlaylist | undefined;
+    const items: YoutubePlaylistItem[] = [];
+    let fetchedCount = 0;
+    let searchedPages = 0;
+    do {
+      const page =
+        input.source_access === "owned"
+          ? await this.getOwnedPlaylistItems({
+              url: input.source_url,
+              limit: input.limit,
+              pageToken,
+            })
+          : await this.getPublicCloneSourcePage({
+              url: input.source_url,
+              limit: input.limit,
+              pageToken,
+            });
+      playlist = page.playlist;
+      items.push(...page.items);
+      fetchedCount += page.fetched_count;
+      searchedPages += 1;
+      pageToken = page.next_page_token;
+    } while (pageToken && searchedPages < input.maxPages);
+    if (!playlist) {
+      throw new YoutubeMcpError(
+        "The source playlist has no readable items.",
+        "playlist_not_found",
+      );
+    }
+    return {
+      playlist,
+      items,
+      fetchedCount,
+      searchedPages,
+      nextPageToken: pageToken,
+    };
+  }
+
+  private async getPublicCloneSourcePage(input: {
+    url: string;
+    limit: number;
+    pageToken?: string;
+  }): Promise<YoutubePlaylistItemPage> {
+    if (!this.publicClient) {
+      throw new YoutubeMcpError(
+        "Public playlist cloning is unavailable in this server configuration.",
+        "playlist_clone_unavailable",
+      );
+    }
+    return this.publicClient.getPlaylistItems(input);
   }
 
   private async getOwnedPlaylist(url: string): Promise<YoutubePlaylist> {
@@ -626,4 +863,20 @@ export class AuthenticatedYoutubeClient {
     }
     return item;
   }
+}
+
+function toWriteFailure<T extends "playlist_item_id" | "video_id">(
+  field: T,
+  identifier: string,
+  error: unknown,
+): Record<T, string> & { code: string; message: string } {
+  return {
+    [field]: identifier,
+    code:
+      error instanceof YoutubeMcpError ? error.code : "playlist_write_failed",
+    message:
+      error instanceof Error
+        ? error.message
+        : "YouTube playlist mutation failed.",
+  } as Record<T, string> & { code: string; message: string };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AuthenticatedYoutubeClient } from "../../src/lib/youtube-auth.js";
 import { YoutubeAuthRequestClient } from "../../src/lib/youtube-auth-request-client.js";
+import { YoutubeMcpError } from "../../src/errors.js";
 
 describe("AuthenticatedYoutubeClient", () => {
   it("rejects a non-owned playlist before a write", async () => {
@@ -399,4 +400,231 @@ describe("AuthenticatedYoutubeClient", () => {
     );
     expect(continuedCursor.retained).toEqual([["video-2", "item-4"]]);
   });
+
+  it("preflights every cleanup item before deleting and reports a stopped partial run", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [playlist] })
+      .mockResolvedValueOnce(channelResponse())
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("item-1", "video-1", 0)],
+      })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("item-2", "video-2", 1)],
+      })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("item-1", "video-1", 0)],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ items: [] })
+      .mockRejectedValueOnce(
+        new YoutubeMcpError(
+          "YouTube rejected the deletion.",
+          "youtube_api_error",
+        ),
+      );
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistCleanup({
+        url: playlistUrl,
+        removals: [
+          { playlist_item_id: "item-1", reason: "duplicate_video" },
+          { playlist_item_id: "item-2", reason: "unavailable_video" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      removed_playlist_item_ids: ["item-1"],
+      remaining_playlist_item_ids: ["item-2"],
+      complete: false,
+      failure: { playlist_item_id: "item-2", code: "youtube_api_error" },
+    });
+  });
+
+  it("rejects a stale cleanup plan before any deletion", async () => {
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [playlistResource("playlist-1", "Mine")],
+      })
+      .mockResolvedValueOnce(channelResponse())
+      .mockResolvedValueOnce({ items: [] });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistCleanup({
+        url: playlistUrl,
+        removals: [{ playlist_item_id: "missing", reason: "duplicate_video" }],
+      }),
+    ).rejects.toMatchObject({ code: "playlist_cleanup_stale" });
+    expect(
+      requestMock.mock.calls.some(([request]) => request.method === "DELETE"),
+    ).toBe(false);
+  });
+
+  it("clones a bounded public source in order, retaining duplicate videos", async () => {
+    const sourceItems = [
+      publicItem("source-1", "video-1", 0),
+      publicItem("source-2", "video-1", 1),
+    ];
+    const publicClient = {
+      getPlaylistItems: vi.fn().mockResolvedValue({
+        playlist: normalizedPlaylist("source", "Source"),
+        items: sourceItems,
+        fetched_count: 2,
+        next_page_token: "later",
+      }),
+    };
+    const target = {
+      ...playlistResource("target", "Copy of Source"),
+      contentDetails: { itemCount: 2 },
+    };
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [{ id: "video-1" }] })
+      .mockResolvedValueOnce({ id: "target" })
+      .mockResolvedValueOnce({ items: [target] })
+      .mockResolvedValueOnce({ id: "copy-1" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("copy-1", "video-1", 0, "target")],
+      })
+      .mockResolvedValueOnce({ id: "copy-2" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("copy-2", "video-1", 1, "target")],
+      })
+      .mockResolvedValueOnce({ items: [target] });
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    const result = await client.clonePlaylist({
+      source_url: playlistUrl,
+      source_access: "public",
+      privacy_status: "private",
+      limit: 50,
+      maxPages: 1,
+    });
+
+    expect(result).toMatchObject({
+      playlist: { title: "Copy of Source" },
+      copied_items: [
+        { playlist_item_id: "copy-1", video_id: "video-1", position: 0 },
+        { playlist_item_id: "copy-2", video_id: "video-1", position: 1 },
+      ],
+      complete: false,
+      remaining_source_page_token: "later",
+    });
+    expect(publicClient.getPlaylistItems).toHaveBeenCalledWith({
+      url: playlistUrl,
+      limit: 50,
+      pageToken: undefined,
+    });
+  });
+
+  it("skips unavailable source videos before creating a clone", async () => {
+    const publicClient = {
+      getPlaylistItems: vi.fn().mockResolvedValue({
+        playlist: normalizedPlaylist("source", "Source"),
+        items: [publicItem("source-1", "missing", 0)],
+        fetched_count: 1,
+      }),
+    };
+    const requestMock = vi.fn().mockResolvedValueOnce({ items: [] });
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    await expect(
+      client.clonePlaylist({
+        source_url: playlistUrl,
+        source_access: "public",
+        privacy_status: "private",
+        limit: 50,
+        maxPages: 1,
+      }),
+    ).rejects.toMatchObject({ code: "playlist_clone_unavailable" });
+    expect(
+      requestMock.mock.calls.some(([request]) => request.method === "POST"),
+    ).toBe(false);
+  });
 });
+
+const playlistUrl = "https://www.youtube.com/playlist?list=PL123456789";
+
+function channelResponse() {
+  return {
+    items: [
+      {
+        id: "my-channel",
+        snippet: { title: "Mine", publishedAt: "2020-01-01T00:00:00Z" },
+      },
+    ],
+  };
+}
+
+function playlistResource(id: string, title: string) {
+  return {
+    id,
+    snippet: {
+      title,
+      description: "",
+      channelId: "my-channel",
+      channelTitle: "Mine",
+      publishedAt: "2020-01-01T00:00:00Z",
+    },
+    status: { privacyStatus: "private" },
+  };
+}
+
+function playlistItemResource(
+  id: string,
+  videoId: string,
+  position: number,
+  playlistId = "playlist-1",
+) {
+  return {
+    id,
+    snippet: {
+      playlistId,
+      title: "Video",
+      channelTitle: "Creator",
+      publishedAt: "2020-01-01T00:00:00Z",
+      resourceId: { videoId },
+      position,
+    },
+    contentDetails: { videoId },
+  };
+}
+
+function publicItem(id: string, videoId: string, position: number) {
+  return {
+    playlist_item_id: id,
+    video_id: videoId,
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    title: "Video",
+    description: "",
+    published_at: "2020-01-01T00:00:00Z",
+    position,
+    thumbnails: {},
+  };
+}
+
+function normalizedPlaylist(id: string, title: string) {
+  return {
+    id,
+    url: `https://www.youtube.com/playlist?list=${id}`,
+    title,
+    description: "",
+    channel_id: "source-channel",
+    channel_name: "Source",
+    published_at: "2020-01-01T00:00:00Z",
+    thumbnails: {},
+  };
+}

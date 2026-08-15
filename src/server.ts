@@ -32,14 +32,18 @@ import {
   getCommentRepliesSchema,
   findPlaylistItemsSchema,
   planPlaylistCleanupSchema,
+  applyPlaylistCleanupSchema,
+  clonePlaylistSchema,
   updatePlaylistInputSchema,
+  searchTranscriptSchema,
 } from "./tools.js";
 
 /** Local stdio MCP for bounded YouTube research and owned-playlist management. */
 const config = getYoutubeConfig();
-const server = new McpServer({ name: "youtube-mcp", version: "0.4.0" });
+const server = new McpServer({ name: "youtube-mcp", version: "0.5.0" });
+const publicClient = new YoutubeClient(config);
 const handlers = createToolHandlers(
-  new YoutubeClient(config),
+  publicClient,
   new TranscriptClient(config.ytDlpPath),
   () => {
     const oauthConfig = getYoutubeOAuthConfig();
@@ -49,6 +53,7 @@ const handlers = createToolHandlers(
         tokenStore,
         new YoutubeOAuthClient(oauthConfig),
       ),
+      publicClient,
     );
   },
 );
@@ -142,6 +147,17 @@ server.registerTool(
 );
 
 server.registerTool(
+  "youtube_clone_playlist",
+  {
+    title: "Clone YouTube Playlist",
+    description:
+      "Copies a bounded page range from a readable playlist into a new owned playlist. Requires confirm: true.",
+    inputSchema: clonePlaylistSchema.shape,
+  },
+  handlers.clonePlaylist,
+);
+
+server.registerTool(
   "youtube_search_channels",
   {
     title: "Search YouTube Channels",
@@ -187,6 +203,16 @@ server.registerTool(
     inputSchema: planPlaylistCleanupSchema.shape,
   },
   handlers.planPlaylistCleanup,
+);
+server.registerTool(
+  "youtube_apply_playlist_cleanup",
+  {
+    title: "Apply YouTube Playlist Cleanup",
+    description:
+      "Applies reviewed exact cleanup removals to an owned playlist. Requires confirm: true.",
+    inputSchema: applyPlaylistCleanupSchema.shape,
+  },
+  handlers.applyPlaylistCleanup,
 );
 server.registerTool(
   "youtube_get_video",
@@ -240,6 +266,16 @@ server.registerTool(
     inputSchema: getTranscriptSchema.shape,
   },
   handlers.getTranscript,
+);
+server.registerTool(
+  "youtube_search_transcript",
+  {
+    title: "Search YouTube Transcript",
+    description:
+      "Finds literal terms in one explicit window of a YouTube caption track.",
+    inputSchema: searchTranscriptSchema.shape,
+  },
+  handlers.searchTranscript,
 );
 
 server.registerTool(
