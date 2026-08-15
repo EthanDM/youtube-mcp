@@ -334,10 +334,15 @@ describe("YoutubeClient", () => {
             items: [{ id: { playlistId: "playlist-1" } }],
           });
         },
-        "GET /youtube/v3/channels?": () =>
-          jsonResponse({ items: [{ ...channelResource(), id: "channel-1" }] }),
-        "GET /youtube/v3/playlists?": () =>
-          jsonResponse({
+        "GET /youtube/v3/channels?": (url) => {
+          expect(url.searchParams.get("maxResults")).toBe("1");
+          return jsonResponse({
+            items: [{ ...channelResource(), id: "channel-1" }],
+          });
+        },
+        "GET /youtube/v3/playlists?": (url) => {
+          expect(url.searchParams.get("maxResults")).toBe("1");
+          return jsonResponse({
             items: [
               {
                 id: "playlist-1",
@@ -349,7 +354,8 @@ describe("YoutubeClient", () => {
                 },
               },
             ],
-          }),
+          });
+        },
         "GET /youtube/v3/comments?": (url) => {
           expect(url.searchParams.get("parentId")).toBe("parent");
           return jsonResponse({

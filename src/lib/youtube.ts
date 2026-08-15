@@ -355,6 +355,7 @@ export class YoutubeClient {
       new URLSearchParams({
         part: "snippet,statistics,contentDetails",
         id: ids.join(","),
+        maxResults: String(ids.length),
       }),
     );
     const byId = new Map((detail.items || []).map((item) => [item.id, item]));
@@ -403,6 +404,7 @@ export class YoutubeClient {
       new URLSearchParams({
         part: "snippet,contentDetails,status",
         id: ids.join(","),
+        maxResults: String(ids.length),
       }),
     );
     const byId = new Map((detail.items || []).map((item) => [item.id, item]));
