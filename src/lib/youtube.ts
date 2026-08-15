@@ -3,9 +3,13 @@ import { YoutubeMcpError } from "../errors.js";
 import type {
   YoutubeChannel,
   YoutubeChannelVideoPage,
+  YoutubeChannelSearchPage,
+  YoutubeCommentReplyPage,
   YoutubeCommentPage,
   YoutubeCommentSearchResult,
   YoutubePlaylistItemPage,
+  YoutubePlaylistItemSearchResult,
+  YoutubePlaylistSearchPage,
   YoutubeVideo,
   YoutubeVideoSearchPage,
 } from "../types.js";
@@ -17,6 +21,7 @@ import {
 import {
   normalizeChannel,
   normalizeCommentThread,
+  normalizeComment,
   normalizePlaylist,
   normalizePlaylistItem,
   normalizePublicPlaylistItem,
@@ -44,7 +49,9 @@ type PlaylistItemsResponse = {
 };
 type PlaylistsResponse = { items?: YoutubePlaylistResource[] };
 type SearchResponse = {
-  items?: Array<{ id?: { videoId?: string } }>;
+  items?: Array<{
+    id?: { videoId?: string; channelId?: string; playlistId?: string };
+  }>;
   nextPageToken?: string;
 };
 
@@ -83,6 +90,13 @@ export type GetPlaylistItemsInput = {
   url: string;
   limit: number;
   pageToken?: string;
+};
+
+export type SearchInput = SearchVideosInput;
+
+export type FindPlaylistItemsInput = GetPlaylistItemsInput & {
+  matchTerms: string[];
+  maxPages: number;
 };
 
 export class YoutubeClient {
@@ -139,6 +153,33 @@ export class YoutubeClient {
             search_scope: "retrieved_page_only" as const,
           }
         : {}),
+    };
+  }
+
+  async getCommentReplies(input: {
+    parentCommentId: string;
+    limit: number;
+    pageToken?: string;
+  }): Promise<YoutubeCommentReplyPage> {
+    const response = await this.requestClient.get<{
+      items?: Array<import("./youtube-normalizers.js").RawComment>;
+      nextPageToken?: string;
+    }>(
+      "/comments",
+      new URLSearchParams({
+        part: "snippet",
+        parentId: input.parentCommentId,
+        maxResults: String(input.limit),
+        textFormat: "plainText",
+        ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+      }),
+    );
+    const replies = (response.items || []).map(normalizeComment);
+    return {
+      parent_comment_id: input.parentCommentId,
+      replies,
+      next_page_token: response.nextPageToken,
+      fetched_count: replies.length,
     };
   }
 
@@ -266,6 +307,7 @@ export class YoutubeClient {
       new URLSearchParams({
         part: "snippet,contentDetails,statistics,liveStreamingDetails,status",
         id: ids.join(","),
+        maxResults: String(ids.length),
       }),
     );
     const byId = new Map(
@@ -283,6 +325,100 @@ export class YoutubeClient {
       next_page_token: search.nextPageToken,
       fetched_count: ids.length,
       returned_count: videos.length,
+    };
+  }
+
+  async searchChannels(input: SearchInput): Promise<YoutubeChannelSearchPage> {
+    const search = await this.requestClient.get<SearchResponse>(
+      "/search",
+      new URLSearchParams({
+        part: "id",
+        q: input.query,
+        type: "channel",
+        maxResults: String(input.limit),
+        order: input.order,
+        ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+      }),
+    );
+    const ids = (search.items || [])
+      .map((item) => item.id?.channelId)
+      .filter((id): id is string => Boolean(id));
+    if (!ids.length)
+      return {
+        query: input.query,
+        channels: [],
+        next_page_token: search.nextPageToken,
+        fetched_count: 0,
+        returned_count: 0,
+      };
+    const detail = await this.requestClient.get<ChannelResponse>(
+      "/channels",
+      new URLSearchParams({
+        part: "snippet,statistics,contentDetails",
+        id: ids.join(","),
+        maxResults: String(ids.length),
+      }),
+    );
+    const byId = new Map((detail.items || []).map((item) => [item.id, item]));
+    const channels = ids.flatMap((id) => {
+      const channel = byId.get(id);
+      return channel
+        ? [normalizeChannel(channel, `https://www.youtube.com/channel/${id}`)]
+        : [];
+    });
+    return {
+      query: input.query,
+      channels,
+      next_page_token: search.nextPageToken,
+      fetched_count: ids.length,
+      returned_count: channels.length,
+    };
+  }
+
+  async searchPlaylists(
+    input: SearchInput,
+  ): Promise<YoutubePlaylistSearchPage> {
+    const search = await this.requestClient.get<SearchResponse>(
+      "/search",
+      new URLSearchParams({
+        part: "id",
+        q: input.query,
+        type: "playlist",
+        maxResults: String(input.limit),
+        order: input.order,
+        ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+      }),
+    );
+    const ids = (search.items || [])
+      .map((item) => item.id?.playlistId)
+      .filter((id): id is string => Boolean(id));
+    if (!ids.length)
+      return {
+        query: input.query,
+        playlists: [],
+        next_page_token: search.nextPageToken,
+        fetched_count: 0,
+        returned_count: 0,
+      };
+    const detail = await this.requestClient.get<PlaylistsResponse>(
+      "/playlists",
+      new URLSearchParams({
+        part: "snippet,contentDetails,status",
+        id: ids.join(","),
+        maxResults: String(ids.length),
+      }),
+    );
+    const byId = new Map((detail.items || []).map((item) => [item.id, item]));
+    const playlists = ids.flatMap((id) => {
+      const playlist = byId.get(id);
+      return playlist ? [normalizePlaylist(playlist)] : [];
+    });
+    return {
+      query: input.query,
+      playlists,
+      next_page_token: search.nextPageToken,
+      fetched_count: ids.length,
+      returned_count: playlists.length,
     };
   }
 
@@ -325,6 +461,57 @@ export class YoutubeClient {
       items,
       next_page_token: response.nextPageToken,
       fetched_count: items.length,
+    };
+  }
+
+  async findPlaylistItems(
+    input: FindPlaylistItemsInput,
+  ): Promise<YoutubePlaylistItemSearchResult> {
+    const terms = input.matchTerms.map((term) => term.toLocaleLowerCase());
+    let pageToken = input.pageToken;
+    let nextPageToken: string | undefined;
+    let playlist: YoutubePlaylistItemPage["playlist"] | undefined;
+    const items: YoutubePlaylistItemSearchResult["items"] = [];
+    let fetchedCount = 0;
+    let searchedPages = 0;
+    do {
+      const page = await this.getPlaylistItems({
+        url: input.url,
+        limit: input.limit,
+        pageToken,
+      });
+      playlist = page.playlist;
+      fetchedCount += page.items.length;
+      searchedPages += 1;
+      items.push(
+        ...page.items.filter((item) =>
+          terms.some((term) =>
+            `${item.title}\n${item.description}`
+              .toLocaleLowerCase()
+              .includes(term),
+          ),
+        ),
+      );
+      nextPageToken = page.next_page_token;
+      pageToken = nextPageToken;
+    } while (pageToken && searchedPages < input.maxPages);
+    return {
+      playlist: playlist!,
+      items,
+      next_page_token: nextPageToken,
+      fetched_count: fetchedCount,
+      matched_count: items.length,
+      matched_terms: terms.filter((term) =>
+        items.some((item) =>
+          `${item.title}\n${item.description}`
+            .toLocaleLowerCase()
+            .includes(term),
+        ),
+      ),
+      search_scope: "retrieved_pages_only",
+      searched_pages: searchedPages,
+      max_pages: input.maxPages,
+      complete: !nextPageToken,
     };
   }
 

@@ -27,12 +27,17 @@ import {
   getTranscriptLanguagesSchema,
   getTranscriptSchema,
   searchVideosSchema,
+  searchChannelsSchema,
+  searchPlaylistsSchema,
+  getCommentRepliesSchema,
+  findPlaylistItemsSchema,
+  planPlaylistCleanupSchema,
   updatePlaylistInputSchema,
 } from "./tools.js";
 
 /** Local stdio MCP for bounded YouTube research and owned-playlist management. */
 const config = getYoutubeConfig();
-const server = new McpServer({ name: "youtube-mcp", version: "0.3.0" });
+const server = new McpServer({ name: "youtube-mcp", version: "0.4.0" });
 const handlers = createToolHandlers(
   new YoutubeClient(config),
   new TranscriptClient(config.ytDlpPath),
@@ -136,6 +141,53 @@ server.registerTool(
   handlers.reorderPlaylistItem,
 );
 
+server.registerTool(
+  "youtube_search_channels",
+  {
+    title: "Search YouTube Channels",
+    description: "Searches one explicit page of public YouTube channels.",
+    inputSchema: searchChannelsSchema.shape,
+  },
+  handlers.searchChannels,
+);
+server.registerTool(
+  "youtube_search_playlists",
+  {
+    title: "Search YouTube Playlists",
+    description: "Searches one explicit page of public YouTube playlists.",
+    inputSchema: searchPlaylistsSchema.shape,
+  },
+  handlers.searchPlaylists,
+);
+server.registerTool(
+  "youtube_get_comment_replies",
+  {
+    title: "Get YouTube Comment Replies",
+    description: "Gets one explicit page of replies to a YouTube comment.",
+    inputSchema: getCommentRepliesSchema.shape,
+  },
+  handlers.getCommentReplies,
+);
+server.registerTool(
+  "youtube_find_playlist_items",
+  {
+    title: "Find YouTube Playlist Items",
+    description:
+      "Finds literal terms across bounded public or owned playlist pages.",
+    inputSchema: findPlaylistItemsSchema.shape,
+  },
+  handlers.findPlaylistItems,
+);
+server.registerTool(
+  "youtube_plan_playlist_cleanup",
+  {
+    title: "Plan YouTube Playlist Cleanup",
+    description:
+      "Plans deterministic duplicate and unavailable-item removals for an owned playlist without making changes.",
+    inputSchema: planPlaylistCleanupSchema.shape,
+  },
+  handlers.planPlaylistCleanup,
+);
 server.registerTool(
   "youtube_get_video",
   {

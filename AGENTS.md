@@ -12,6 +12,7 @@ This repository is a local YouTube MCP for public discovery, bounded comment ret
 - Keep `yt-dlp` caption extraction local, explicit, read-only, and separate from the Data API client. Never use it to download media or persist transcript data.
 - Keep OAuth interactive and local through the auth CLI. Store tokens only in the private user-scoped token file; never expose them through MCP tools or Git.
 - Authenticate playlist writes with OAuth and reject playlists not owned by the resolved authenticated channel. Require `confirm: true` for removal and reordering.
+- Verify every playlist mutation through an observed-state readback before reporting success. Cleanup planning is deterministic and read-only; do not infer subjective sequencing.
 - Preserve explicit pagination. Never crawl comment pages implicitly.
 - State the retrieved-page-only limit whenever local comment-term matching is used.
 - Keep API keys and tunnel credentials outside Git.

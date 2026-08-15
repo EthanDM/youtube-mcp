@@ -8,11 +8,16 @@ The repository is public, but the server is intentionally local and single-user:
 
 - `youtube_get_video`
 - `youtube_get_comments`
+- `youtube_get_comment_replies`
 - `youtube_find_comments`
 - `youtube_get_channel`
 - `youtube_get_channel_videos`
 - `youtube_search_videos`
+- `youtube_search_channels`
+- `youtube_search_playlists`
 - `youtube_get_playlist_items`
+- `youtube_find_playlist_items`
+- `youtube_plan_playlist_cleanup`
 - `youtube_list_transcript_languages`
 - `youtube_get_transcript`
 - `youtube_get_authenticated_channel`
@@ -98,7 +103,11 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 `youtube_search_videos` returns one explicit page of public video search results, enriched with normalized video metadata. Search is quota-expensive, so requests are limited to 25 results.
 
+`youtube_search_channels` and `youtube_search_playlists` provide the same bounded, enriched discovery flow for public channels and playlists. `youtube_get_comment_replies` retrieves one explicit reply page for a known parent comment.
+
 `youtube_get_playlist_items` accepts public `/playlist?list=...` and `/watch?...&list=...` URLs and returns one explicit item page. Items retain their playlist item IDs and positions for safe future authenticated workflows.
+
+`youtube_find_playlist_items` matches literal terms across at most five public or owned-playlist pages. `youtube_plan_playlist_cleanup` is owned-playlist-only and returns deterministic duplicate/unavailable-item removal recommendations; it never mutates and does not infer subjective sequencing. For a truncated cleanup pass, provide its opaque `next_cursor` to continue while retaining duplicate-detection context. Every playlist write is read back and verified before success is returned.
 
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. Availability can change and is not guaranteed for every public video.
 

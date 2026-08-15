@@ -176,3 +176,59 @@ export type YoutubeCommentSearchResult = {
   max_pages: number;
   complete: boolean;
 };
+
+export type YoutubeCommentReplyPage = {
+  parent_comment_id: string;
+  replies: YoutubeComment[];
+  next_page_token?: string;
+  fetched_count: number;
+};
+
+export type YoutubeChannelSearchPage = {
+  query: string;
+  channels: YoutubeChannel[];
+  next_page_token?: string;
+  fetched_count: number;
+  returned_count: number;
+};
+
+export type YoutubePlaylistSearchPage = {
+  query: string;
+  playlists: YoutubePlaylist[];
+  next_page_token?: string;
+  fetched_count: number;
+  returned_count: number;
+};
+
+export type YoutubePlaylistItemSearchResult = {
+  playlist: YoutubePlaylist;
+  items: YoutubePlaylistItem[];
+  next_page_token?: string;
+  fetched_count: number;
+  matched_count: number;
+  matched_terms: string[];
+  search_scope: "retrieved_pages_only";
+  searched_pages: number;
+  max_pages: number;
+  complete: boolean;
+};
+
+export type YoutubePlaylistCleanupPlan = {
+  playlist: YoutubePlaylist;
+  removals: Array<{
+    playlist_item_id: string;
+    reason: "duplicate_video" | "unavailable_video";
+  }>;
+  duplicate_groups: Array<{
+    video_id: string;
+    retained_playlist_item_id: string;
+    removal_playlist_item_ids: string[];
+  }>;
+  unavailable_items: YoutubePlaylistItem[];
+  next_page_token?: string;
+  next_cursor?: string;
+  fetched_count: number;
+  searched_pages: number;
+  max_pages: number;
+  complete: boolean;
+};
