@@ -17,6 +17,9 @@ import {
   findPlaylistItemsSchema,
   getCommentRepliesSchema,
   planPlaylistCleanupSchema,
+  applyPlaylistCleanupSchema,
+  clonePlaylistSchema,
+  searchTranscriptSchema,
 } from "../src/tools.js";
 
 const transcriptClient = {} as TranscriptClient;
@@ -153,6 +156,12 @@ describe("tool schemas", () => {
         maxSegments: 501,
       }).success,
     ).toBe(false);
+    expect(
+      searchTranscriptSchema.parse({
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        matchTerms: ["source"],
+      }),
+    ).toMatchObject({ maxSegments: 250 });
   });
 
   it("defaults new playlists to private and gates destructive mutations", () => {
@@ -197,5 +206,38 @@ describe("tool schemas", () => {
         cursor: "x".repeat(250_001),
       }).success,
     ).toBe(true);
+  });
+
+  it("gates and bounds V2.2 batch playlist workflows", () => {
+    const cleanup = {
+      url: "https://www.youtube.com/playlist?list=PL123456789",
+      removals: [{ playlist_item_id: "item-1", reason: "duplicate_video" }],
+      confirm: true,
+    };
+    expect(applyPlaylistCleanupSchema.parse(cleanup)).toMatchObject(cleanup);
+    expect(
+      applyPlaylistCleanupSchema.safeParse({
+        ...cleanup,
+        removals: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      clonePlaylistSchema.parse({
+        source_url: cleanup.url,
+        confirm: true,
+      }),
+    ).toMatchObject({
+      source_access: "public",
+      privacy_status: "private",
+      limit: 50,
+      maxPages: 1,
+    });
+    expect(
+      clonePlaylistSchema.safeParse({
+        source_url: cleanup.url,
+        confirm: true,
+        source_access: "invalid",
+      }).success,
+    ).toBe(false);
   });
 });

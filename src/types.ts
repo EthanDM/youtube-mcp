@@ -232,3 +232,85 @@ export type YoutubePlaylistCleanupPlan = {
   max_pages: number;
   complete: boolean;
 };
+
+export type YoutubePlaylistCleanupApplyResult = {
+  playlist: YoutubePlaylist;
+  removed_playlist_item_ids: string[];
+  remaining_playlist_item_ids: string[];
+  indeterminate_playlist_item_ids: string[];
+  complete: boolean;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
+  failure?: {
+    playlist_item_id: string;
+    code: string;
+    message: string;
+  };
+};
+
+export type YoutubePlaylistCloneResult = {
+  source_playlist: YoutubePlaylist;
+  playlist?: YoutubePlaylist;
+  copied_items: YoutubePlaylistItem[];
+  remaining_video_ids?: string[];
+  indeterminate_video_ids?: string[];
+  skipped_items: Array<{
+    playlist_item_id: string;
+    video_id?: string;
+    reason: "unavailable_video" | "missing_video_id";
+  }>;
+  fetched_count: number;
+  searched_pages: number;
+  max_pages: number;
+  complete: boolean;
+  remaining_source_page_token?: string;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
+  failure?:
+    | {
+        video_id: string;
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "target_playlist_verification";
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "playlist_creation_verification";
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "playlist_creation_indeterminate";
+        code: string;
+        message: string;
+      }
+    | {
+        stage: "source_preflight";
+        code: string;
+        message: string;
+      };
+};
+
+export type YoutubeTranscriptSearchResult = {
+  video: YoutubeTranscriptPage["video"];
+  transcript: {
+    language: string;
+    track_type: "creator" | "automatic";
+    display_name?: string;
+    segments: YoutubeTranscriptSegment[];
+    matched_count: number;
+    matched_terms: string[];
+    searched_segments: number;
+    total_segments: number;
+    complete: boolean;
+    next_cursor?: string;
+    search_scope: "retrieved_segments_only";
+  };
+};

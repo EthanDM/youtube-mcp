@@ -5,6 +5,7 @@ import type {
   TranscriptTrack,
   YoutubeTranscriptLanguageList,
   YoutubeTranscriptPage,
+  YoutubeTranscriptSearchResult,
   YoutubeTranscriptSegment,
 } from "../types.js";
 import { YoutubeMcpError } from "../errors.js";
@@ -75,14 +76,76 @@ export class TranscriptClient {
     cursor?: string;
     maxSegments: number;
   }): Promise<YoutubeTranscriptPage> {
+    const window = await this.getTranscriptWindow(input);
+    return {
+      video: window.video,
+      transcript: {
+        language: window.track.language,
+        track_type: window.track.track_type,
+        display_name: window.track.display_name,
+        segments: window.segments,
+        text: window.segments.map((segment) => segment.text).join("\n"),
+        returned_segments: window.segments.length,
+        total_segments: window.totalSegments,
+        complete: window.complete,
+        next_cursor: window.nextCursor,
+      },
+    };
+  }
+
+  /** Searches exactly the same cursor window used by transcript retrieval. */
+  async searchTranscript(input: {
+    url: string;
+    matchTerms: string[];
+    language?: string;
+    cursor?: string;
+    maxSegments: number;
+  }): Promise<YoutubeTranscriptSearchResult> {
+    const window = await this.getTranscriptWindow(input);
+    const terms = input.matchTerms.map((term) => term.toLocaleLowerCase());
+    const segments = window.segments.filter((segment) =>
+      terms.some((term) => segment.text.toLocaleLowerCase().includes(term)),
+    );
+    return {
+      video: window.video,
+      transcript: {
+        language: window.track.language,
+        track_type: window.track.track_type,
+        display_name: window.track.display_name,
+        segments,
+        matched_count: segments.length,
+        matched_terms: terms.filter((term) =>
+          segments.some((segment) =>
+            segment.text.toLocaleLowerCase().includes(term),
+          ),
+        ),
+        searched_segments: window.segments.length,
+        total_segments: window.totalSegments,
+        complete: window.complete,
+        next_cursor: window.nextCursor,
+        search_scope: "retrieved_segments_only",
+      },
+    };
+  }
+
+  private async getTranscriptWindow(input: {
+    url: string;
+    language?: string;
+    cursor?: string;
+    maxSegments: number;
+  }): Promise<{
+    video: YoutubeTranscriptPage["video"];
+    track: SelectedTrack;
+    segments: YoutubeTranscriptSegment[];
+    totalSegments: number;
+    complete: boolean;
+    nextCursor?: string;
+  }> {
     const parsed = parseYoutubeUrl(input.url);
     const metadata = await this.getMetadata(parsed.canonicalUrl);
     const cursor = input.cursor ? decodeCursor(input.cursor) : undefined;
     if (cursor && cursor.videoId !== parsed.videoId) {
-      throw new YoutubeMcpError(
-        "The transcript cursor does not match the requested video or transcript track.",
-        "transcript_cursor_invalid",
-      );
+      throw transcriptCursorInvalid();
     }
     const track = selectTrack(
       metadata,
@@ -100,26 +163,22 @@ export class TranscriptClient {
     }
     if (
       cursor &&
-      (cursor.videoId !== parsed.videoId ||
-        cursor.language !== track.language ||
+      (cursor.language !== track.language ||
         cursor.trackType !== track.track_type)
     ) {
-      throw new YoutubeMcpError(
-        "The transcript cursor does not match the requested video or transcript track.",
-        "transcript_cursor_invalid",
-      );
+      throw transcriptCursorInvalid();
     }
-    const segments = await this.fetchSegments(track, metadata.http_headers);
+    const allSegments = await this.fetchSegments(track, metadata.http_headers);
     const offset = cursor?.offset || 0;
-    if (offset > segments.length) {
+    if (offset > allSegments.length) {
       throw new YoutubeMcpError(
         "The transcript cursor points beyond the available transcript.",
         "transcript_cursor_invalid",
       );
     }
-    const page = segments.slice(offset, offset + input.maxSegments);
-    const nextOffset = offset + page.length;
-    const complete = nextOffset >= segments.length;
+    const segments = allSegments.slice(offset, offset + input.maxSegments);
+    const nextOffset = offset + segments.length;
+    const complete = nextOffset >= allSegments.length;
     return {
       video: {
         id: parsed.videoId,
@@ -128,24 +187,18 @@ export class TranscriptClient {
         channel_name: metadata.channel || "Unknown channel",
         duration_iso8601: toIsoDuration(metadata.duration),
       },
-      transcript: {
-        language: track.language,
-        track_type: track.track_type,
-        display_name: track.display_name,
-        segments: page,
-        text: page.map((segment) => segment.text).join("\n"),
-        returned_segments: page.length,
-        total_segments: segments.length,
-        complete,
-        next_cursor: complete
-          ? undefined
-          : encodeCursor({
-              videoId: parsed.videoId,
-              language: track.language,
-              trackType: track.track_type,
-              offset: nextOffset,
-            }),
-      },
+      track,
+      segments,
+      totalSegments: allSegments.length,
+      complete,
+      nextCursor: complete
+        ? undefined
+        : encodeCursor({
+            videoId: parsed.videoId,
+            language: track.language,
+            trackType: track.track_type,
+            offset: nextOffset,
+          }),
     };
   }
 
@@ -524,6 +577,13 @@ function transcriptUnavailable(): YoutubeMcpError {
   return new YoutubeMcpError(
     "No creator or automatic transcript track is available for this video.",
     "transcript_unavailable",
+  );
+}
+
+function transcriptCursorInvalid(): YoutubeMcpError {
+  return new YoutubeMcpError(
+    "The transcript cursor does not match the requested video or transcript track.",
+    "transcript_cursor_invalid",
   );
 }
 

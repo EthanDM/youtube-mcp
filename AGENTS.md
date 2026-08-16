@@ -13,6 +13,8 @@ This repository is a local YouTube MCP for public discovery, bounded comment ret
 - Keep OAuth interactive and local through the auth CLI. Store tokens only in the private user-scoped token file; never expose them through MCP tools or Git.
 - Authenticate playlist writes with OAuth and reject playlists not owned by the resolved authenticated channel. Require `confirm: true` for removal and reordering.
 - Verify every playlist mutation through an observed-state readback before reporting success. Cleanup planning is deterministic and read-only; do not infer subjective sequencing.
+- Batch cleanup executes only explicit, confirm-gated planner removals after preflight; stop and report exact partial state on a write failure. Playlist cloning stays caller-bounded (five pages maximum), preserves source order, and never rolls back a partial target.
+- Keep transcript search bounded to the requested cursor window and state its retrieved-segments-only scope.
 - Preserve explicit pagination. Never crawl comment pages implicitly.
 - State the retrieved-page-only limit whenever local comment-term matching is used.
 - Keep API keys and tunnel credentials outside Git.
