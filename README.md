@@ -114,6 +114,10 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 `youtube_clone_playlist` requires `confirm: true` and copies at most five explicit source pages (250 items) from a public or owned source into a new owned playlist. It preserves source order and duplicate videos, reports unavailable source items instead of hiding them, and never rolls back a partially copied target. Every playlist write is read back and verified before success is returned.
 
+`youtube_add_playlist_videos` appends a reviewed list of up to 250 public video URLs to an owned playlist in the supplied order. It requires `confirm: true`, validates every requested video before its first write, and stops with exact completed, remaining, and indeterminate IDs on a write failure.
+
+`youtube_apply_playlist_order` applies a reviewed complete item-ID order to an owned playlist of at most 250 items. It requires `confirm: true` and rejects stale, incomplete, or duplicate item-ID lists before any mutation. Each move and the final full order are read back; a failure reports the observed order along with completed, remaining, and indeterminate IDs.
+
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. Availability can change and is not guaranteed for every public video.
 
 `youtube_search_transcript` applies literal-term matching only to one explicit transcript segment window and returns matching timestamped segments with `search_scope: "retrieved_segments_only"`. It accepts compatible cursors from either transcript tool.

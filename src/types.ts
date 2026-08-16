@@ -250,6 +250,41 @@ export type YoutubePlaylistCleanupApplyResult = {
   };
 };
 
+export type YoutubePlaylistBatchAddResult = {
+  playlist: YoutubePlaylist;
+  added_items: YoutubePlaylistItem[];
+  remaining_video_ids: string[];
+  indeterminate_video_ids: string[];
+  complete: boolean;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
+  failure?: {
+    video_id: string;
+    code: string;
+    message: string;
+  };
+};
+
+export type YoutubePlaylistOrderApplyResult = {
+  playlist: YoutubePlaylist;
+  applied_playlist_item_ids: string[];
+  remaining_playlist_item_ids: string[];
+  indeterminate_playlist_item_ids: string[];
+  observed_playlist_item_ids?: string[];
+  complete: boolean;
+  metadata_verification?: {
+    code: string;
+    message: string;
+  };
+  failure?: {
+    playlist_item_id: string;
+    code: string;
+    message: string;
+  };
+};
+
 export type YoutubePlaylistCloneResult = {
   source_playlist: YoutubePlaylist;
   playlist?: YoutubePlaylist;

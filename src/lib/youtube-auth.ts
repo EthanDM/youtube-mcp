@@ -9,6 +9,8 @@ import type {
   YoutubePlaylistCleanupPlan,
   YoutubePlaylistCleanupApplyResult,
   YoutubePlaylistCloneResult,
+  YoutubePlaylistBatchAddResult,
+  YoutubePlaylistOrderApplyResult,
 } from "../types.js";
 import {
   normalizeChannel,
@@ -674,6 +676,48 @@ export class AuthenticatedYoutubeClient {
     return this.addVideoToPlaylist(playlist, video.videoId, input.position);
   }
 
+  /** Appends an all-preflighted batch, stopping at the first ambiguous or failed write. */
+  async addPlaylistVideos(input: {
+    url: string;
+    videoUrls: string[];
+  }): Promise<YoutubePlaylistBatchAddResult> {
+    const playlist = await this.getOwnedPlaylist(input.url);
+    const videoIds = input.videoUrls.map(
+      (videoUrl) => parseYoutubeUrl(videoUrl).videoId,
+    );
+    const unavailable = await this.getUnavailableVideoIds(videoIds);
+    if (unavailable.size) {
+      throw new YoutubeMcpError(
+        "Every video must be publicly available before a batch add can begin.",
+        "playlist_batch_preflight_failed",
+      );
+    }
+
+    const added_items: YoutubePlaylistItem[] = [];
+    for (let index = 0; index < videoIds.length; index += 1) {
+      const videoId = videoIds[index]!;
+      try {
+        added_items.push(await this.addVideoToPlaylist(playlist, videoId));
+      } catch (error) {
+        return {
+          ...(await this.observeBatchAddPlaylist(playlist)),
+          added_items,
+          remaining_video_ids: videoIds.slice(index + 1),
+          indeterminate_video_ids: [videoId],
+          complete: false,
+          failure: toWriteFailure("video_id", videoId, error),
+        };
+      }
+    }
+    return {
+      ...(await this.observeBatchAddPlaylist(playlist)),
+      added_items,
+      remaining_video_ids: [],
+      indeterminate_video_ids: [],
+      complete: true,
+    };
+  }
+
   private async addVideoToPlaylist(
     playlist: YoutubePlaylist,
     videoId: string,
@@ -757,7 +801,106 @@ export class AuthenticatedYoutubeClient {
     position: number;
   }): Promise<YoutubePlaylistItem> {
     const playlist = await this.getOwnedPlaylist(input.url);
-    const item = await this.getPlaylistItem(playlist.id, input.playlistItemId);
+    return this.reorderPlaylistItemInPlaylist(
+      playlist,
+      input.playlistItemId,
+      input.position,
+    );
+  }
+
+  /** Applies a complete caller-reviewed item order after proving it matches current playlist membership. */
+  async applyPlaylistOrder(input: {
+    url: string;
+    orderedPlaylistItemIds: string[];
+  }): Promise<YoutubePlaylistOrderApplyResult> {
+    const playlist = await this.getOwnedPlaylist(input.url);
+    const requestedIds = input.orderedPlaylistItemIds;
+    if (new Set(requestedIds).size !== requestedIds.length) {
+      throw new YoutubeMcpError(
+        "A playlist order may name each playlist item only once.",
+        "playlist_order_stale",
+      );
+    }
+    const currentItems = await this.readOwnedPlaylistOrder(playlist.id);
+    const currentIds = currentItems.map((item) => item.playlist_item_id);
+    if (
+      currentIds.length !== requestedIds.length ||
+      !requestedIds.every((playlistItemId) =>
+        currentIds.includes(playlistItemId),
+      )
+    ) {
+      throw new YoutubeMcpError(
+        "The supplied order no longer exactly matches this owned playlist.",
+        "playlist_order_stale",
+      );
+    }
+
+    const applied_playlist_item_ids: string[] = [];
+    const workingOrder = [...currentIds];
+    for (let position = 0; position < requestedIds.length; position += 1) {
+      const playlistItemId = requestedIds[position]!;
+      const currentPosition = workingOrder.indexOf(playlistItemId);
+      if (currentPosition === position) {
+        applied_playlist_item_ids.push(playlistItemId);
+        continue;
+      }
+      try {
+        await this.reorderPlaylistItemInPlaylist(
+          playlist,
+          playlistItemId,
+          position,
+        );
+        workingOrder.splice(currentPosition, 1);
+        workingOrder.splice(position, 0, playlistItemId);
+        applied_playlist_item_ids.push(playlistItemId);
+      } catch (error) {
+        const observed = await this.observePlaylistOrder(playlist);
+        return {
+          ...observed,
+          applied_playlist_item_ids,
+          remaining_playlist_item_ids: requestedIds.slice(position + 1),
+          indeterminate_playlist_item_ids: [playlistItemId],
+          complete: false,
+          failure: toWriteFailure("playlist_item_id", playlistItemId, error),
+        };
+      }
+    }
+    const observed = await this.observePlaylistOrder(playlist);
+    if (
+      !observed.observed_playlist_item_ids ||
+      !requestedIds.every(
+        (playlistItemId, index) =>
+          observed.observed_playlist_item_ids![index] === playlistItemId,
+      )
+    ) {
+      return {
+        ...observed,
+        applied_playlist_item_ids,
+        remaining_playlist_item_ids: [],
+        indeterminate_playlist_item_ids: [],
+        complete: false,
+        failure: {
+          playlist_item_id: requestedIds[0]!,
+          code: "playlist_write_verification_failed",
+          message: "YouTube did not confirm the requested playlist order.",
+        },
+      };
+    }
+    return {
+      ...observed,
+      applied_playlist_item_ids,
+      remaining_playlist_item_ids: [],
+      indeterminate_playlist_item_ids: [],
+      complete: true,
+    };
+  }
+
+  private async reorderPlaylistItemInPlaylist(
+    playlist: YoutubePlaylist,
+    playlistItemId: string,
+    position: number,
+  ): Promise<YoutubePlaylistItem> {
+    const item = await this.getPlaylistItem(playlist.id, playlistItemId);
     const videoId =
       item.contentDetails?.videoId || item.snippet.resourceId?.videoId;
     if (!videoId)
@@ -774,13 +917,13 @@ export class AuthenticatedYoutubeClient {
           id: item.id,
           snippet: {
             playlistId: playlist.id,
-            position: input.position,
+            position,
             resourceId: { kind: "youtube#video", videoId },
           },
         },
       });
     const observed = await this.getPlaylistItem(playlist.id, response.id);
-    if (observed.snippet.position !== input.position)
+    if (observed.snippet.position !== position)
       throw new YoutubeMcpError(
         "YouTube did not confirm playlist item position.",
         "playlist_write_verification_failed",
@@ -863,6 +1006,75 @@ export class AuthenticatedYoutubeClient {
       );
     }
     return this.publicClient.getUnavailableVideoIds(videoIds);
+  }
+
+  /** Reads only a playlist small enough for a single reviewed order request. */
+  private async readOwnedPlaylistOrder(
+    playlistId: string,
+  ): Promise<YoutubePlaylistItem[]> {
+    const items: YoutubePlaylistItem[] = [];
+    let pageToken: string | undefined;
+    do {
+      const response = await this.requestClient.request<PlaylistItemsResponse>({
+        method: "GET",
+        path: "/playlistItems",
+        query: new URLSearchParams({
+          part: "snippet,contentDetails",
+          playlistId,
+          maxResults: "50",
+          ...(pageToken ? { pageToken } : {}),
+        }),
+      });
+      items.push(...(response.items || []).map(normalizePublicPlaylistItem));
+      pageToken = response.nextPageToken;
+      if (items.length > 250 || (items.length === 250 && pageToken)) {
+        throw new YoutubeMcpError(
+          "Playlist ordering is limited to playlists with at most 250 items.",
+          "playlist_order_too_large",
+        );
+      }
+    } while (pageToken);
+    return items;
+  }
+
+  private async observeBatchAddPlaylist(
+    playlist: YoutubePlaylist,
+  ): Promise<
+    Pick<YoutubePlaylistBatchAddResult, "playlist" | "metadata_verification">
+  > {
+    try {
+      return { playlist: await this.getPlaylistById(playlist.id) };
+    } catch (error) {
+      return {
+        playlist,
+        metadata_verification: toMetadataVerification(error),
+      };
+    }
+  }
+
+  private async observePlaylistOrder(
+    playlist: YoutubePlaylist,
+  ): Promise<
+    Pick<
+      YoutubePlaylistOrderApplyResult,
+      "playlist" | "observed_playlist_item_ids" | "metadata_verification"
+    >
+  > {
+    const observed = await this.observeBatchAddPlaylist(playlist);
+    try {
+      return {
+        ...observed,
+        observed_playlist_item_ids: (
+          await this.readOwnedPlaylistOrder(playlist.id)
+        ).map((item) => item.playlist_item_id),
+      };
+    } catch (error) {
+      return {
+        ...observed,
+        metadata_verification:
+          observed.metadata_verification || toMetadataVerification(error),
+      };
+    }
   }
 
   private async getOwnedPlaylist(url: string): Promise<YoutubePlaylist> {
@@ -1073,6 +1285,20 @@ function toWriteFailure<T extends "playlist_item_id" | "video_id">(
         ? error.message
         : "YouTube playlist mutation failed.",
   } as Record<T, string> & { code: string; message: string };
+}
+
+function toMetadataVerification(error: unknown): {
+  code: string;
+  message: string;
+} {
+  return {
+    code:
+      error instanceof YoutubeMcpError ? error.code : "playlist_write_failed",
+    message:
+      error instanceof Error
+        ? error.message
+        : "YouTube playlist metadata verification failed.",
+  };
 }
 
 function deriveCloneTitle(sourceTitle: string): string {
