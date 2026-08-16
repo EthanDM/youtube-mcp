@@ -685,7 +685,7 @@ export class AuthenticatedYoutubeClient {
     const videoIds = input.videoUrls.map(
       (videoUrl) => parseYoutubeUrl(videoUrl).videoId,
     );
-    const unavailable = await this.getUnavailableVideoIds(videoIds);
+    const unavailable = await this.getPublicUnavailableVideoIds(videoIds);
     if (unavailable.size) {
       throw new YoutubeMcpError(
         "Every video must be publicly available before a batch add can begin.",
@@ -868,6 +868,7 @@ export class AuthenticatedYoutubeClient {
     const observed = await this.observePlaylistOrder(playlist);
     if (
       !observed.observed_playlist_item_ids ||
+      observed.observed_playlist_item_ids.length !== requestedIds.length ||
       !requestedIds.every(
         (playlistItemId, index) =>
           observed.observed_playlist_item_ids![index] === playlistItemId,

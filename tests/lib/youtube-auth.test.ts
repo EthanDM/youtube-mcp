@@ -130,11 +130,17 @@ describe("AuthenticatedYoutubeClient", () => {
     const requestMock = vi
       .fn()
       .mockResolvedValueOnce({ items: [playlist] })
-      .mockResolvedValueOnce(channelResponse())
-      .mockResolvedValueOnce({ items: [{ id: "dQw4w9WgXcQ" }] });
-    const client = new AuthenticatedYoutubeClient({
-      request: requestMock,
-    } as unknown as YoutubeAuthRequestClient);
+      .mockResolvedValueOnce(channelResponse());
+    const publicClient = {
+      getUnavailableVideoIds: vi
+        .fn()
+        .mockResolvedValue(new Set(["9bZkp7q19f0"])),
+      getPlaylistItems: vi.fn(),
+    };
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
 
     await expect(
       client.addPlaylistVideos({
@@ -148,6 +154,10 @@ describe("AuthenticatedYoutubeClient", () => {
     expect(
       requestMock.mock.calls.some(([request]) => request.method === "POST"),
     ).toBe(false);
+    expect(publicClient.getUnavailableVideoIds).toHaveBeenCalledWith([
+      "dQw4w9WgXcQ",
+      "9bZkp7q19f0",
+    ]);
   });
 
   it("reports an indeterminate video and preserves completed batch additions", async () => {
@@ -156,9 +166,6 @@ describe("AuthenticatedYoutubeClient", () => {
       .fn()
       .mockResolvedValueOnce({ items: [playlist] })
       .mockResolvedValueOnce(channelResponse())
-      .mockResolvedValueOnce({
-        items: [{ id: "dQw4w9WgXcQ" }, { id: "9bZkp7q19f0" }],
-      })
       .mockResolvedValueOnce({ id: "item-1" })
       .mockResolvedValueOnce({
         items: [playlistItemResource("item-1", "dQw4w9WgXcQ", 0, "playlist-1")],
@@ -167,9 +174,13 @@ describe("AuthenticatedYoutubeClient", () => {
         new YoutubeMcpError("YouTube rejected insertion.", "youtube_api_error"),
       )
       .mockResolvedValueOnce({ items: [playlist] });
-    const client = new AuthenticatedYoutubeClient({
-      request: requestMock,
-    } as unknown as YoutubeAuthRequestClient);
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      {
+        getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
+        getPlaylistItems: vi.fn(),
+      },
+    );
 
     await expect(
       client.addPlaylistVideos({
@@ -262,6 +273,53 @@ describe("AuthenticatedYoutubeClient", () => {
     expect(
       requestMock.mock.calls.some(([request]) => request.method === "PUT"),
     ).toBe(false);
+  });
+
+  it("rejects a final order that gains an item after preflight", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const order = [
+      playlistItemResource("item-1", "video-1", 0),
+      playlistItemResource("item-2", "video-2", 1),
+    ];
+    let moved = false;
+    const requestMock = vi.fn(async (request) => {
+      if (request.path === "/playlists") return { items: [playlist] };
+      if (request.path === "/channels") return channelResponse();
+      if (request.path !== "/playlistItems") throw new Error("Unexpected path");
+      if (request.method === "PUT") {
+        moved = true;
+        const [item] = order.splice(1, 1);
+        order.unshift(item!);
+        order.forEach((entry, index) => {
+          entry.snippet.position = index;
+        });
+        return item;
+      }
+      if (request.query.has("playlistId")) {
+        return {
+          items: moved
+            ? [...order, playlistItemResource("item-3", "video-3", 2)]
+            : order,
+        };
+      }
+      return {
+        items: order.filter((item) => item.id === request.query.get("id")),
+      };
+    });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistOrder({
+        url: playlistUrl,
+        orderedPlaylistItemIds: ["item-2", "item-1"],
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      observed_playlist_item_ids: ["item-2", "item-1", "item-3"],
+      failure: { code: "playlist_write_verification_failed" },
+    });
   });
 
   it("rejects a stale playlist order before moving any item", async () => {
