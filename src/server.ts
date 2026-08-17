@@ -18,6 +18,8 @@ import {
   getCommentsSchema,
   getVideoSchema,
   addPlaylistVideoSchema,
+  addPlaylistVideosSchema,
+  applyPlaylistOrderSchema,
   createPlaylistSchema,
   getOwnedPlaylistItemsSchema,
   listOwnedPlaylistsSchema,
@@ -40,7 +42,7 @@ import {
 
 /** Local stdio MCP for bounded YouTube research and owned-playlist management. */
 const config = getYoutubeConfig();
-const server = new McpServer({ name: "youtube-mcp", version: "0.5.0" });
+const server = new McpServer({ name: "youtube-mcp", version: "0.6.0" });
 const publicClient = new YoutubeClient(config);
 const handlers = createToolHandlers(
   publicClient,
@@ -125,6 +127,17 @@ server.registerTool(
 );
 
 server.registerTool(
+  "youtube_add_playlist_videos",
+  {
+    title: "Add Videos to YouTube Playlist",
+    description:
+      "Appends reviewed public videos to an owned playlist in the supplied order. Requires confirm: true.",
+    inputSchema: addPlaylistVideosSchema.shape,
+  },
+  handlers.addPlaylistVideos,
+);
+
+server.registerTool(
   "youtube_remove_playlist_item",
   {
     title: "Remove YouTube Playlist Item",
@@ -144,6 +157,17 @@ server.registerTool(
     inputSchema: reorderPlaylistItemSchema.shape,
   },
   handlers.reorderPlaylistItem,
+);
+
+server.registerTool(
+  "youtube_apply_playlist_order",
+  {
+    title: "Apply YouTube Playlist Order",
+    description:
+      "Applies a reviewed complete item-ID order to an owned playlist of at most 250 items. Requires confirm: true.",
+    inputSchema: applyPlaylistOrderSchema.shape,
+  },
+  handlers.applyPlaylistOrder,
 );
 
 server.registerTool(

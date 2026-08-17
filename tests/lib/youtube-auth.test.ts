@@ -125,6 +125,233 @@ describe("AuthenticatedYoutubeClient", () => {
     ).rejects.toMatchObject({ code: "playlist_write_verification_failed" });
   });
 
+  it("preflights every batch video before making a playlist insertion", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [playlist] })
+      .mockResolvedValueOnce(channelResponse());
+    const publicClient = {
+      getUnavailableVideoIds: vi
+        .fn()
+        .mockResolvedValue(new Set(["9bZkp7q19f0"])),
+      getPlaylistItems: vi.fn(),
+    };
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      publicClient,
+    );
+
+    await expect(
+      client.addPlaylistVideos({
+        url: playlistUrl,
+        videoUrls: [
+          "https://youtu.be/dQw4w9WgXcQ",
+          "https://youtu.be/9bZkp7q19f0",
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "playlist_batch_preflight_failed" });
+    expect(
+      requestMock.mock.calls.some(([request]) => request.method === "POST"),
+    ).toBe(false);
+    expect(publicClient.getUnavailableVideoIds).toHaveBeenCalledWith([
+      "dQw4w9WgXcQ",
+      "9bZkp7q19f0",
+    ]);
+  });
+
+  it("reports an indeterminate video and preserves completed batch additions", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [playlist] })
+      .mockResolvedValueOnce(channelResponse())
+      .mockResolvedValueOnce({ id: "item-1" })
+      .mockResolvedValueOnce({
+        items: [playlistItemResource("item-1", "dQw4w9WgXcQ", 0, "playlist-1")],
+      })
+      .mockRejectedValueOnce(
+        new YoutubeMcpError("YouTube rejected insertion.", "youtube_api_error"),
+      )
+      .mockResolvedValueOnce({ items: [playlist] });
+    const client = new AuthenticatedYoutubeClient(
+      { request: requestMock } as unknown as YoutubeAuthRequestClient,
+      {
+        getUnavailableVideoIds: vi.fn().mockResolvedValue(new Set()),
+        getPlaylistItems: vi.fn(),
+      },
+    );
+
+    await expect(
+      client.addPlaylistVideos({
+        url: playlistUrl,
+        videoUrls: [
+          "https://youtu.be/dQw4w9WgXcQ",
+          "https://youtu.be/9bZkp7q19f0",
+        ],
+      }),
+    ).resolves.toMatchObject({
+      added_items: [{ playlist_item_id: "item-1" }],
+      indeterminate_video_ids: ["9bZkp7q19f0"],
+      remaining_video_ids: [],
+      complete: false,
+      failure: { video_id: "9bZkp7q19f0", code: "youtube_api_error" },
+    });
+  });
+
+  it("applies only an exact reviewed playlist order and verifies the final order", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const order = [
+      playlistItemResource("item-1", "video-1", 0),
+      playlistItemResource("item-2", "video-2", 1),
+      playlistItemResource("item-3", "video-3", 2),
+    ];
+    const requestMock = vi.fn(async (request) => {
+      if (request.path === "/playlists") return { items: [playlist] };
+      if (request.path === "/channels") return channelResponse();
+      if (request.path !== "/playlistItems") throw new Error("Unexpected path");
+      if (request.method === "PUT") {
+        const currentIndex = order.findIndex(
+          (item) => item.id === request.body.id,
+        );
+        const [moved] = order.splice(currentIndex, 1);
+        order.splice(request.body.snippet.position, 0, moved!);
+        order.forEach((item, index) => {
+          item.snippet.position = index;
+        });
+        return moved;
+      }
+      if (request.query.has("playlistId")) return { items: order };
+      return {
+        items: order.filter((item) => item.id === request.query.get("id")),
+      };
+    });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistOrder({
+        url: playlistUrl,
+        orderedPlaylistItemIds: ["item-3", "item-1", "item-2"],
+      }),
+    ).resolves.toMatchObject({
+      applied_playlist_item_ids: ["item-3", "item-1", "item-2"],
+      observed_playlist_item_ids: ["item-3", "item-1", "item-2"],
+      complete: true,
+    });
+    expect(
+      requestMock.mock.calls.filter(([request]) => request.method === "PUT"),
+    ).toHaveLength(1);
+  });
+
+  it("does not write when the reviewed order is already current", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const order = [
+      playlistItemResource("item-1", "video-1", 0),
+      playlistItemResource("item-2", "video-2", 1),
+    ];
+    const requestMock = vi.fn(async (request) => {
+      if (request.path === "/playlists") return { items: [playlist] };
+      if (request.path === "/channels") return channelResponse();
+      if (request.path === "/playlistItems") {
+        if (request.method === "PUT") throw new Error("Unexpected write");
+        return { items: order };
+      }
+      throw new Error("Unexpected path");
+    });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistOrder({
+        url: playlistUrl,
+        orderedPlaylistItemIds: ["item-1", "item-2"],
+      }),
+    ).resolves.toMatchObject({ complete: true });
+    expect(
+      requestMock.mock.calls.some(([request]) => request.method === "PUT"),
+    ).toBe(false);
+  });
+
+  it("rejects a final order that gains an item after preflight", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const order = [
+      playlistItemResource("item-1", "video-1", 0),
+      playlistItemResource("item-2", "video-2", 1),
+    ];
+    let moved = false;
+    const requestMock = vi.fn(async (request) => {
+      if (request.path === "/playlists") return { items: [playlist] };
+      if (request.path === "/channels") return channelResponse();
+      if (request.path !== "/playlistItems") throw new Error("Unexpected path");
+      if (request.method === "PUT") {
+        moved = true;
+        const [item] = order.splice(1, 1);
+        order.unshift(item!);
+        order.forEach((entry, index) => {
+          entry.snippet.position = index;
+        });
+        return item;
+      }
+      if (request.query.has("playlistId")) {
+        return {
+          items: moved
+            ? [...order, playlistItemResource("item-3", "video-3", 2)]
+            : order,
+        };
+      }
+      return {
+        items: order.filter((item) => item.id === request.query.get("id")),
+      };
+    });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistOrder({
+        url: playlistUrl,
+        orderedPlaylistItemIds: ["item-2", "item-1"],
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      observed_playlist_item_ids: ["item-2", "item-1", "item-3"],
+      failure: { code: "playlist_write_verification_failed" },
+    });
+  });
+
+  it("rejects a stale playlist order before moving any item", async () => {
+    const playlist = playlistResource("playlist-1", "Mine");
+    const requestMock = vi.fn(async (request) => {
+      if (request.path === "/playlists") return { items: [playlist] };
+      if (request.path === "/channels") return channelResponse();
+      if (request.path === "/playlistItems") {
+        return {
+          items: [
+            playlistItemResource("item-1", "video-1", 0),
+            playlistItemResource("item-2", "video-2", 1),
+          ],
+        };
+      }
+      throw new Error("Unexpected path");
+    });
+    const client = new AuthenticatedYoutubeClient({
+      request: requestMock,
+    } as unknown as YoutubeAuthRequestClient);
+
+    await expect(
+      client.applyPlaylistOrder({
+        url: playlistUrl,
+        orderedPlaylistItemIds: ["item-2"],
+      }),
+    ).rejects.toMatchObject({ code: "playlist_order_stale" });
+    expect(
+      requestMock.mock.calls.some(([request]) => request.method === "PUT"),
+    ).toBe(false);
+  });
+
   it("rejects an update that does not preserve submitted metadata", async () => {
     const playlist = {
       id: "playlist-1",

@@ -20,6 +20,8 @@ import {
   applyPlaylistCleanupSchema,
   clonePlaylistSchema,
   searchTranscriptSchema,
+  addPlaylistVideosSchema,
+  applyPlaylistOrderSchema,
 } from "../src/tools.js";
 
 const transcriptClient = {} as TranscriptClient;
@@ -237,6 +239,42 @@ describe("tool schemas", () => {
         source_url: cleanup.url,
         confirm: true,
         source_access: "invalid",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("gates and bounds V2.3 batch playlist operations", () => {
+    const url = "https://www.youtube.com/playlist?list=PL123456789";
+    expect(
+      addPlaylistVideosSchema.safeParse({
+        url,
+        video_urls: ["https://youtu.be/dQw4w9WgXcQ"],
+      }).success,
+    ).toBe(false);
+    expect(
+      addPlaylistVideosSchema.safeParse({
+        url,
+        video_urls: Array.from(
+          { length: 251 },
+          () => "https://youtu.be/dQw4w9WgXcQ",
+        ),
+        confirm: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      applyPlaylistOrderSchema.safeParse({
+        url,
+        ordered_playlist_item_ids: ["item-1"],
+      }).success,
+    ).toBe(false);
+    expect(
+      applyPlaylistOrderSchema.safeParse({
+        url,
+        ordered_playlist_item_ids: Array.from(
+          { length: 251 },
+          (_, index) => `item-${index}`,
+        ),
+        confirm: true,
       }).success,
     ).toBe(false);
   });

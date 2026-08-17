@@ -14,6 +14,7 @@ This repository is a local YouTube MCP for public discovery, bounded comment ret
 - Authenticate playlist writes with OAuth and reject playlists not owned by the resolved authenticated channel. Require `confirm: true` for removal and reordering.
 - Verify every playlist mutation through an observed-state readback before reporting success. Cleanup planning is deterministic and read-only; do not infer subjective sequencing.
 - Batch cleanup executes only explicit, confirm-gated planner removals after preflight; stop and report exact partial state on a write failure. Playlist cloning stays caller-bounded (five pages maximum), preserves source order, and never rolls back a partial target.
+- Batch video adds are append-only, preflight every requested public video before the first write, and retain exact completed, remaining, and indeterminate IDs. Batch ordering requires a complete reviewed item-ID order for an owned playlist of at most 250 items; reject stale/incomplete orders before mutation and read back the final order.
 - Keep transcript search bounded to the requested cursor window and state its retrieved-segments-only scope.
 - Preserve explicit pagination. Never crawl comment pages implicitly.
 - State the retrieved-page-only limit whenever local comment-term matching is used.

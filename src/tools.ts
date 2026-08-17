@@ -133,6 +133,11 @@ export const addPlaylistVideoSchema = z.object({
   video_url: urlSchema,
   position: z.number().int().min(0).optional(),
 });
+export const addPlaylistVideosSchema = z.object({
+  url: urlSchema,
+  video_urls: z.array(urlSchema).min(1).max(250),
+  confirm: z.literal(true),
+});
 export const removePlaylistItemSchema = z.object({
   url: urlSchema,
   playlist_item_id: z.string().trim().min(1).max(200),
@@ -142,6 +147,14 @@ export const reorderPlaylistItemSchema = z.object({
   url: urlSchema,
   playlist_item_id: z.string().trim().min(1).max(200),
   position: z.number().int().min(0),
+  confirm: z.literal(true),
+});
+export const applyPlaylistOrderSchema = z.object({
+  url: urlSchema,
+  ordered_playlist_item_ids: z
+    .array(z.string().trim().min(1).max(200))
+    .min(1)
+    .max(250),
   confirm: z.literal(true),
 });
 export const clonePlaylistSchema = z.object({
@@ -376,6 +389,19 @@ export function createToolHandlers(
         return toolError(error);
       }
     },
+    addPlaylistVideos: async (input: unknown) => {
+      try {
+        const parsed = addPlaylistVideosSchema.parse(input);
+        return toolSuccess(
+          await getAuthenticatedClient().addPlaylistVideos({
+            url: parsed.url,
+            videoUrls: parsed.video_urls,
+          }),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
     removePlaylistItem: async (input: unknown) => {
       try {
         const parsed = removePlaylistItemSchema.parse(input);
@@ -397,6 +423,19 @@ export function createToolHandlers(
             url: parsed.url,
             playlistItemId: parsed.playlist_item_id,
             position: parsed.position,
+          }),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+    applyPlaylistOrder: async (input: unknown) => {
+      try {
+        const parsed = applyPlaylistOrderSchema.parse(input);
+        return toolSuccess(
+          await getAuthenticatedClient().applyPlaylistOrder({
+            url: parsed.url,
+            orderedPlaylistItemIds: parsed.ordered_playlist_item_ids,
           }),
         );
       } catch (error) {
