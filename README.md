@@ -124,7 +124,9 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 ## Optional ChatGPT connection
 
-Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run `tunnel-client` where it can reach the built stdio server, and register the tunnel endpoint in ChatGPT Developer Mode. The tunnel lets ChatGPT reach a private MCP server without a public listener. Follow the current [Secure MCP Tunnel documentation](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) for tunnel creation and `tunnel-client` configuration.
+Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run `tunnel-client` where it can reach the built stdio server, and register the tunnel endpoint in ChatGPT Developer Mode. The tunnel lets ChatGPT reach a private MCP server without a public listener; it is not a public plugin-distribution path.
+
+For an optional persistent macOS setup, see [the ChatGPT tunnel runbook](docs/persistent-chatgpt-tunnel-macos.md). It uses a private runtime-key file and a user LaunchAgent so the tunnel starts again after login and stays available while the Mac is awake and online.
 
 Do not commit the Google API key, OAuth client credentials, OpenAI runtime key, generated tunnel configuration, or local token file.
 
