@@ -10,6 +10,7 @@ This repository is a local YouTube MCP for public discovery, bounded comment ret
 - Do not add account-library tools, media downloads, ASR/Whisper fallback, caching, persistence beyond the local OAuth token store, or write actions outside owned-playlist management without an explicit product decision.
 - Keep API-key public reads in the centralized GET-only request client. Keep OAuth-authenticated playlist reads and writes in the separate authenticated request client.
 - Keep `yt-dlp` caption extraction local, explicit, read-only, and separate from the Data API client. Never use it to download media or persist transcript data.
+- For a transient caption fetch failure, refresh metadata and retry once only; preserve safe failure detail without exposing caption URLs or retrying permanent failures.
 - Do not add transcript export, caching, or artifact persistence to the MCP. If an external assistant creates a user-requested transcript export, keep it outside the repository under `~/.config/youtube-mcp/artifacts/` as user-local output, not server state.
 - Keep OAuth interactive and local through the auth CLI. Store tokens only in the private user-scoped token file; never expose them through MCP tools or Git.
 - Authenticate playlist writes with OAuth and reject playlists not owned by the resolved authenticated channel. Require `confirm: true` for removal and reordering.

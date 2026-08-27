@@ -213,6 +213,83 @@ describe("TranscriptClient", () => {
     expect(headers.get("user-agent")).toBe("format");
   });
 
+  it("retries a transient caption failure with fresh metadata", async () => {
+    let metadataCalls = 0;
+    const fetchedUrls: string[] = [];
+    const client = new TranscriptClient(
+      "yt-dlp",
+      async () => {
+        metadataCalls += 1;
+        return JSON.stringify({
+          subtitles: {
+            en: [
+              {
+                url: `https://captions.example/creator-${metadataCalls}`,
+                ext: "json3",
+              },
+            ],
+          },
+        });
+      },
+      (async (url) => {
+        fetchedUrls.push(String(url));
+        return fetchedUrls.length === 1
+          ? new Response("busy", { status: 429 })
+          : new Response(
+              JSON.stringify({
+                events: [
+                  {
+                    tStartMs: 0,
+                    dDurationMs: 1_000,
+                    segs: [{ utf8: "Recovered caption" }],
+                  },
+                ],
+              }),
+            );
+      }) as typeof fetch,
+    );
+
+    await expect(
+      client.getTranscript({ url: videoUrl, maxSegments: 1 }),
+    ).resolves.toMatchObject({
+      transcript: { text: "Recovered caption", complete: true },
+    });
+    expect(metadataCalls).toBe(2);
+    expect(fetchedUrls).toEqual([
+      "https://captions.example/creator-1",
+      "https://captions.example/creator-2",
+    ]);
+  });
+
+  it("does not retry permanent caption failures", async () => {
+    let metadataCalls = 0;
+    let fetchCalls = 0;
+    const client = new TranscriptClient(
+      "yt-dlp",
+      async () => {
+        metadataCalls += 1;
+        return JSON.stringify({
+          subtitles: {
+            en: [{ url: "https://captions.example/missing", ext: "json3" }],
+          },
+        });
+      },
+      (async () => {
+        fetchCalls += 1;
+        return new Response("missing", { status: 404 });
+      }) as typeof fetch,
+    );
+
+    await expect(
+      client.getTranscript({ url: videoUrl, maxSegments: 1 }),
+    ).rejects.toMatchObject({
+      code: "transcript_fetch_failed",
+      message: "The selected transcript track request returned HTTP 404.",
+    });
+    expect(metadataCalls).toBe(1);
+    expect(fetchCalls).toBe(1);
+  });
+
   it("parses XML caption tracks and reports unavailable captions", async () => {
     const client = createClient(
       {
