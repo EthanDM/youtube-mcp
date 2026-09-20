@@ -43,6 +43,22 @@ type Cursor = {
   offset: number;
 };
 
+type ResolvedTranscript = {
+  metadata: YtDlpMetadata;
+  track: SelectedTrack;
+  allSegments: YoutubeTranscriptSegment[];
+};
+
+class TranscriptFetchError extends YoutubeMcpError {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message, "transcript_fetch_failed");
+    this.name = "TranscriptFetchError";
+  }
+}
+
 export type TranscriptProcess = (
   path: string,
   args: string[],
@@ -142,33 +158,30 @@ export class TranscriptClient {
     nextCursor?: string;
   }> {
     const parsed = parseYoutubeUrl(input.url);
-    const metadata = await this.getMetadata(parsed.canonicalUrl);
     const cursor = input.cursor ? decodeCursor(input.cursor) : undefined;
     if (cursor && cursor.videoId !== parsed.videoId) {
       throw transcriptCursorInvalid();
     }
-    const track = selectTrack(
-      metadata,
-      input.language || cursor?.language,
-      cursor?.trackType,
-    );
-    if (!track) {
-      if (input.language) {
-        throw new YoutubeMcpError(
-          `No ${input.language} transcript track is available for this video.`,
-          "transcript_language_unavailable",
-        );
+    let resolved: ResolvedTranscript;
+    try {
+      resolved = await this.resolveTranscript(input, cursor);
+    } catch (error) {
+      if (!(error instanceof TranscriptFetchError) || !error.retryable) {
+        throw error;
       }
-      throw transcriptUnavailable();
+      try {
+        resolved = await this.resolveTranscript(input, cursor);
+      } catch (retryError) {
+        if (retryError instanceof TranscriptFetchError) {
+          throw new YoutubeMcpError(
+            `${retryError.message} A fresh caption URL retry also failed.`,
+            retryError.code,
+          );
+        }
+        throw retryError;
+      }
     }
-    if (
-      cursor &&
-      (cursor.language !== track.language ||
-        cursor.trackType !== track.track_type)
-    ) {
-      throw transcriptCursorInvalid();
-    }
-    const allSegments = await this.fetchSegments(track, metadata.http_headers);
+    const { allSegments, metadata, track } = resolved;
     const offset = cursor?.offset || 0;
     if (offset > allSegments.length) {
       throw new YoutubeMcpError(
@@ -199,6 +212,43 @@ export class TranscriptClient {
             trackType: track.track_type,
             offset: nextOffset,
           }),
+    };
+  }
+
+  private async resolveTranscript(
+    input: {
+      url: string;
+      language?: string;
+    },
+    cursor: Cursor | undefined,
+  ): Promise<ResolvedTranscript> {
+    const parsed = parseYoutubeUrl(input.url);
+    const metadata = await this.getMetadata(parsed.canonicalUrl);
+    const track = selectTrack(
+      metadata,
+      input.language || cursor?.language,
+      cursor?.trackType,
+    );
+    if (!track) {
+      if (input.language) {
+        throw new YoutubeMcpError(
+          `No ${input.language} transcript track is available for this video.`,
+          "transcript_language_unavailable",
+        );
+      }
+      throw transcriptUnavailable();
+    }
+    if (
+      cursor &&
+      (cursor.language !== track.language ||
+        cursor.trackType !== track.track_type)
+    ) {
+      throw transcriptCursorInvalid();
+    }
+    return {
+      metadata,
+      track,
+      allSegments: await this.fetchSegments(track, metadata.http_headers),
     };
   }
 
@@ -244,24 +294,24 @@ export class TranscriptClient {
         signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS),
       });
     } catch {
-      throw new YoutubeMcpError(
-        "The selected transcript track could not be fetched.",
-        "transcript_fetch_failed",
+      throw new TranscriptFetchError(
+        "The selected transcript track request failed before a response was received.",
+        true,
       );
     }
     if (!response.ok) {
-      throw new YoutubeMcpError(
-        "The selected transcript track could not be fetched.",
-        "transcript_fetch_failed",
+      throw new TranscriptFetchError(
+        `The selected transcript track request returned HTTP ${response.status}.`,
+        isRetryableCaptionStatus(response.status),
       );
     }
     let text: string;
     try {
       text = await response.text();
     } catch {
-      throw new YoutubeMcpError(
-        "The selected transcript track could not be fetched.",
-        "transcript_fetch_failed",
+      throw new TranscriptFetchError(
+        "The selected transcript track response could not be read.",
+        true,
       );
     }
     const segments = parseCaption(text, format.ext);
@@ -401,6 +451,10 @@ function formatRank(extension?: string): number {
       : extension === "ttml"
         ? 2
         : 3;
+}
+
+function isRetryableCaptionStatus(status: number): boolean {
+  return status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
 function parseCaption(
