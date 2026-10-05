@@ -120,6 +120,8 @@ Replace `/absolute/path/to/youtube-mcp` with your clone path. Rebuild after sour
 
 `youtube_list_transcript_languages` lists caption tracks exposed for a video. `youtube_get_transcript` returns one explicit page of timestamped creator or automatic caption segments. It prefers English when no language is requested, then falls back to the video language. Transcript retrieval uses local `yt-dlp` metadata and YouTube-exposed caption URLs; it never downloads media, writes a cache, or generates ASR text. A transient caption fetch is retried once with fresh metadata, but availability can change and is not guaranteed for every public video.
 
+Caption discovery permits up to 32 MiB of yt-dlp output so videos with many automatic-caption languages can be inspected. Extraction failures return structured diagnostics with the discovery stage, video ID, backend version when available, process status, safe cause, and retryability. Known output-limit, timeout, authentication, rate-limit, blocked-request, and extractor failures are distinguished; diagnostic summaries are also logged to stderr without raw caption URLs or credentials.
+
 `youtube_search_transcript` applies literal-term matching only to one explicit transcript segment window and returns matching timestamped segments with `search_scope: "retrieved_segments_only"`. It accepts compatible cursors from either transcript tool.
 
 ## Optional ChatGPT connection

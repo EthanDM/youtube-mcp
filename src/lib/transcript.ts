@@ -12,7 +12,9 @@ import { YoutubeMcpError } from "../errors.js";
 import { parseYoutubeUrl } from "./youtube-url.js";
 
 const execFileAsync = promisify(execFile);
-const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+// Auto-translated caption URLs alone exceeded 11 MB for cyeTIEy2qus.
+// Keep every discoverable language while still bounding subprocess memory.
+const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const PROCESS_TIMEOUT_MS = 30_000;
 
 type SubtitleFormat = {
@@ -258,14 +260,29 @@ export class TranscriptClient {
       output = await this.runProcess(this.ytDlpPath || "yt-dlp", [
         "--skip-download",
         "--dump-single-json",
-        "--no-warnings",
         "--no-cache-dir",
         "--",
         url,
       ]);
     } catch (error) {
-      if (error instanceof YoutubeMcpError) throw error;
-      throw mapProcessError(error);
+      const failure = mapProcessError(error, parseYoutubeUrl(url).videoId);
+      try {
+        const version = (
+          await this.runProcess(this.ytDlpPath || "yt-dlp", ["--version"])
+        ).trim();
+        if (/^\d{4}\.\d{2}\.\d{2}$/.test(version) && failure.details) {
+          failure.details.backendVersion = version;
+        }
+      } catch {
+        // Version discovery must never replace the original extraction failure.
+      }
+      console.error(
+        JSON.stringify({
+          event: "youtube_caption_discovery_failed",
+          ...failure.details,
+        }),
+      );
+      throw failure;
     }
     try {
       return JSON.parse(output) as YtDlpMetadata;
@@ -335,38 +352,84 @@ export async function checkYtDlp(path?: string): Promise<string> {
 }
 
 async function runYtDlp(path: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync(path, args, {
-      timeout: PROCESS_TIMEOUT_MS,
-      maxBuffer: MAX_OUTPUT_BYTES,
-    });
-    return stdout;
-  } catch (error) {
-    throw mapProcessError(error);
-  }
+  const { stdout } = await execFileAsync(path, args, {
+    timeout: args[0] === "--version" ? 2_000 : PROCESS_TIMEOUT_MS,
+    maxBuffer: MAX_OUTPUT_BYTES,
+  });
+  return stdout;
 }
 
-function mapProcessError(error: unknown): YoutubeMcpError {
-  const code =
-    typeof error === "object" && error
-      ? (error as { code?: string }).code
-      : undefined;
-  if (code === "ENOENT") {
-    return new YoutubeMcpError(
-      "yt-dlp is not installed or YT_DLP_PATH does not point to an executable.",
-      "yt_dlp_unavailable",
-    );
+/** Only allow known diagnostic summaries out; backend text can contain signed URLs and credentials. */
+function mapProcessError(error: unknown, videoId?: string): YoutubeMcpError {
+  const failure = (typeof error === "object" && error ? error : {}) as {
+    code?: string | number;
+    killed?: boolean;
+    signal?: string;
+    stderr?: string;
+  };
+  const stderr = failure.stderr || "";
+  let code = "yt_dlp_extractor_error";
+  let cause =
+    "yt-dlp extraction failed; no recognized safe upstream diagnostic.";
+  let retryable = false;
+  if (failure.code === "ENOENT") {
+    code = "yt_dlp_unavailable";
+    cause =
+      "yt-dlp is not installed or YT_DLP_PATH does not point to an executable.";
+  } else if (failure.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    code = "yt_dlp_output_limit";
+    cause = `yt-dlp output exceeded the ${MAX_OUTPUT_BYTES}-byte subprocess limit.`;
+  } else if (failure.killed) {
+    code = "yt_dlp_timeout";
+    cause = "yt-dlp timed out while retrieving video metadata.";
+    retryable = true;
+  } else if (
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+429\b|too many requests/i.test(
+      stderr,
+    )
+  ) {
+    code = "youtube_rate_limited";
+    cause = "YouTube rate limited the extraction request (HTTP 429).";
+    retryable = true;
+  } else if (
+    /confirm.*(?:not a bot|age)|sign in|login required|cookies.*required/i.test(
+      stderr,
+    )
+  ) {
+    code = "youtube_authentication_required";
+    cause = "YouTube requires sign-in, age verification, or bot verification.";
+  } else if (
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+403\b|forbidden/i.test(
+      stderr,
+    )
+  ) {
+    code = "youtube_request_blocked";
+    cause = "YouTube blocked the extraction request (HTTP 403).";
+  } else if (
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+5\d\d\b|timed? out|connection reset|temporary failure|unable to download/i.test(
+      stderr,
+    )
+  ) {
+    code = "youtube_temporary_failure";
+    cause = "yt-dlp reported a temporary upstream or network failure.";
+    retryable = true;
+  } else if (/signature|nsig|n challenge|javascript|js runtime/i.test(stderr)) {
+    cause =
+      "yt-dlp reported a player signature, challenge, or JavaScript runtime failure.";
+  } else if (/requested format.*not available|no video formats/i.test(stderr)) {
+    cause = "yt-dlp could not resolve video formats during caption discovery.";
   }
-  const timedOut =
-    typeof error === "object" &&
-    error &&
-    (error as { killed?: boolean }).killed;
-  return new YoutubeMcpError(
-    timedOut
-      ? "yt-dlp timed out while retrieving video metadata."
-      : "yt-dlp could not retrieve video metadata.",
-    "yt_dlp_failed",
-  );
+  return new YoutubeMcpError(cause, code, {
+    code,
+    stage: "caption_discovery",
+    videoId,
+    backend: "yt-dlp",
+    cause,
+    retryable,
+    exitStatus: typeof failure.code === "number" ? failure.code : undefined,
+    processCode: typeof failure.code === "string" ? failure.code : undefined,
+    signal: failure.signal,
+  });
 }
 
 function listTracks(metadata: YtDlpMetadata): SelectedTrack[] {

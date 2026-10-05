@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { TranscriptClient } from "../../src/lib/transcript.js";
@@ -5,6 +9,118 @@ import { TranscriptClient } from "../../src/lib/transcript.js";
 const videoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 describe("TranscriptClient", () => {
+  it("accepts real subprocess metadata larger than the former 5 MB limit", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "youtube-caption-test-"),
+    );
+    const executable = path.join(directory, "yt-dlp");
+    try {
+      await writeFile(
+        executable,
+        `#!${process.execPath}
+const tracks = Object.fromEntries(Array.from({length: 182}, (_, i) => [i === 0 ? "en" : "lang-" + i, [{ext: "json3", url: "https://captions.example/" + "x".repeat(62000)}]]));
+process.stdout.write(JSON.stringify({id: "cyeTIEy2qus", automatic_captions: tracks}));
+`,
+      );
+      await chmod(executable, 0o700);
+      const client = new TranscriptClient(
+        executable,
+        undefined,
+        (async () =>
+          new Response(
+            JSON.stringify({
+              events: [{ tStartMs: 0, segs: [{ utf8: "Caption" }] }],
+            }),
+          )) as typeof fetch,
+      );
+      const url = "https://youtu.be/cyeTIEy2qus?is=N2kY53ixIoOvmDPX";
+      expect((await client.listLanguages(url)).tracks).toHaveLength(182);
+      expect(
+        (await client.getTranscript({ url, maxSegments: 1 })).transcript.text,
+      ).toBe("Caption");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["ERR_CHILD_PROCESS_STDIO_MAXBUFFER", "", "yt_dlp_output_limit", false],
+    [
+      1,
+      "Sign in to confirm you’re not a bot",
+      "youtube_authentication_required",
+      false,
+    ],
+    [1, "HTTP Error 429: Too Many Requests", "youtube_rate_limited", true],
+    [1, "HTTP Error 403: Forbidden", "youtube_request_blocked", false],
+    [1, "HTTP Error 503", "youtube_temporary_failure", true],
+    [1, "Signature extraction failed", "yt_dlp_extractor_error", false],
+  ])(
+    "preserves safe extraction diagnostics for %s / %s",
+    async (processCode, diagnostic, code, retryable) => {
+      const client = new TranscriptClient(undefined, async (_path, args) => {
+        if (args[0] === "--version") return "2026.06.09";
+        throw Object.assign(new Error("secret"), {
+          code: processCode,
+          stderr:
+            diagnostic +
+            " https://captions.example/?token=SECRET Cookie: SECRET",
+        });
+      });
+      let failure: unknown;
+      try {
+        await client.listLanguages(
+          "https://www.youtube.com/watch?v=cyeTIEy2qus",
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code,
+        details: {
+          stage: "caption_discovery",
+          videoId: "cyeTIEy2qus",
+          backend: "yt-dlp",
+          backendVersion: "2026.06.09",
+          retryable,
+        },
+      });
+      expect(JSON.stringify(failure)).not.toContain("SECRET");
+    },
+  );
+
+  it.each(["abc429xyz12", "abc403xyz12", "abc503xyz12"])(
+    "does not treat digits in video ID %s as an HTTP failure",
+    async (videoId) => {
+      const client = new TranscriptClient(undefined, async (_path, args) => {
+        if (args[0] === "--version") return "2026.06.09";
+        throw Object.assign(new Error("extraction failed"), {
+          code: 1,
+          stderr: `ERROR: [youtube] ${videoId}: Video unavailable`,
+        });
+      });
+      await expect(
+        client.listLanguages(`https://www.youtube.com/watch?v=${videoId}`),
+      ).rejects.toMatchObject({
+        code: "yt_dlp_extractor_error",
+        details: { retryable: false, videoId },
+      });
+    },
+  );
+
+  it("keeps process timeouts distinct from extractor errors", async () => {
+    const client = new TranscriptClient(undefined, async () => {
+      throw Object.assign(new Error("timeout"), {
+        killed: true,
+        signal: "SIGTERM",
+      });
+    });
+    await expect(client.listLanguages(videoUrl)).rejects.toMatchObject({
+      code: "yt_dlp_timeout",
+      details: { retryable: true, signal: "SIGTERM" },
+    });
+  });
+
   it("prefers creator English captions, returns timestamped pages, and validates cursors", async () => {
     const client = createClient({
       subtitles: {

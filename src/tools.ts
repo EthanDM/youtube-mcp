@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { formatErrorMessage } from "./errors.js";
+import { YoutubeMcpError, formatErrorMessage } from "./errors.js";
 import type { TranscriptClient } from "./lib/transcript.js";
 import type { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
 import type { YoutubeClient } from "./lib/youtube.js";
@@ -471,8 +471,20 @@ function toolSuccess(result: Record<string, unknown>): ToolResponse {
 }
 
 function toolError(error: unknown): ToolResponse {
+  const details =
+    error instanceof YoutubeMcpError
+      ? error.details || { code: error.code, cause: error.message }
+      : undefined;
   return {
     isError: true,
-    content: [{ type: "text", text: formatErrorMessage(error) }],
+    content: [
+      {
+        type: "text",
+        text: details
+          ? JSON.stringify(details, null, 2)
+          : formatErrorMessage(error),
+      },
+    ],
+    ...(details ? { structuredContent: details } : {}),
   };
 }
