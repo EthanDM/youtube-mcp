@@ -89,6 +89,25 @@ process.stdout.write(JSON.stringify({id: "cyeTIEy2qus", automatic_captions: trac
     },
   );
 
+  it.each(["abc429xyz12", "abc403xyz12", "abc503xyz12"])(
+    "does not treat digits in video ID %s as an HTTP failure",
+    async (videoId) => {
+      const client = new TranscriptClient(undefined, async (_path, args) => {
+        if (args[0] === "--version") return "2026.06.09";
+        throw Object.assign(new Error("extraction failed"), {
+          code: 1,
+          stderr: `ERROR: [youtube] ${videoId}: Video unavailable`,
+        });
+      });
+      await expect(
+        client.listLanguages(`https://www.youtube.com/watch?v=${videoId}`),
+      ).rejects.toMatchObject({
+        code: "yt_dlp_extractor_error",
+        details: { retryable: false, videoId },
+      });
+    },
+  );
+
   it("keeps process timeouts distinct from extractor errors", async () => {
     const client = new TranscriptClient(undefined, async () => {
       throw Object.assign(new Error("timeout"), {

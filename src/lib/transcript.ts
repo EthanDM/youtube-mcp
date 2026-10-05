@@ -383,7 +383,11 @@ function mapProcessError(error: unknown, videoId?: string): YoutubeMcpError {
     code = "yt_dlp_timeout";
     cause = "yt-dlp timed out while retrieving video metadata.";
     retryable = true;
-  } else if (/429|too many requests/i.test(stderr)) {
+  } else if (
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+429\b|too many requests/i.test(
+      stderr,
+    )
+  ) {
     code = "youtube_rate_limited";
     cause = "YouTube rate limited the extraction request (HTTP 429).";
     retryable = true;
@@ -394,11 +398,15 @@ function mapProcessError(error: unknown, videoId?: string): YoutubeMcpError {
   ) {
     code = "youtube_authentication_required";
     cause = "YouTube requires sign-in, age verification, or bot verification.";
-  } else if (/403|forbidden/i.test(stderr)) {
+  } else if (
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+403\b|forbidden/i.test(
+      stderr,
+    )
+  ) {
     code = "youtube_request_blocked";
     cause = "YouTube blocked the extraction request (HTTP 403).";
   } else if (
-    /5\d\d|timed? out|connection reset|temporary failure|unable to download/i.test(
+    /\bHTTP(?:\s+(?:Error|status(?:\s+code)?))?\s*[:=]?\s+5\d\d\b|timed? out|connection reset|temporary failure|unable to download/i.test(
       stderr,
     )
   ) {
