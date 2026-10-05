@@ -1,3 +1,4 @@
+import { YoutubeMcpError } from "../src/errors.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { YoutubeClient } from "../src/lib/youtube.js";
@@ -29,6 +30,36 @@ const authenticatedClient = () =>
   ({}) as import("../src/lib/youtube-auth.js").AuthenticatedYoutubeClient;
 
 describe("tool schemas", () => {
+  it("returns structured extraction errors in both MCP response representations", async () => {
+    const details = {
+      code: "yt_dlp_output_limit",
+      stage: "caption_discovery",
+      videoId: "cyeTIEy2qus",
+      backend: "yt-dlp",
+      retryable: false,
+    };
+    const captions = {
+      listLanguages: vi.fn(async () => {
+        throw new YoutubeMcpError(
+          "Output limit",
+          "yt_dlp_output_limit",
+          details,
+        );
+      }),
+    } as unknown as TranscriptClient;
+    const handlers = createToolHandlers(
+      {} as YoutubeClient,
+      captions,
+      authenticatedClient,
+    );
+    const result = await handlers.getTranscriptLanguages({
+      url: "https://www.youtube.com/watch?v=cyeTIEy2qus",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual(details);
+    expect(JSON.parse(result.content[0]!.text)).toEqual(details);
+  });
+
   it("applies safe comment defaults", () => {
     expect(
       getCommentsSchema.parse({ url: "https://youtu.be/dQw4w9WgXcQ" }),
