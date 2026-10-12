@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { withRequestTiming } from "./lib/request-timing.js";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
@@ -68,7 +70,10 @@ server.registerTool(
       "Gets the YouTube channel attached to the local OAuth session.",
     inputSchema: {},
   },
-  handlers.getAuthenticatedChannel,
+  withRequestTiming(
+    "youtube_get_authenticated_channel",
+    handlers.getAuthenticatedChannel,
+  ),
 );
 
 server.registerTool(
@@ -79,7 +84,10 @@ server.registerTool(
       "Gets one explicit page of playlists owned by the authenticated channel.",
     inputSchema: listOwnedPlaylistsSchema.shape,
   },
-  handlers.listOwnedPlaylists,
+  withRequestTiming(
+    "youtube_list_owned_playlists",
+    handlers.listOwnedPlaylists,
+  ),
 );
 
 server.registerTool(
@@ -90,7 +98,10 @@ server.registerTool(
       "Gets one explicit item page from a playlist owned by the authenticated channel.",
     inputSchema: getOwnedPlaylistItemsSchema.shape,
   },
-  handlers.getOwnedPlaylistItems,
+  withRequestTiming(
+    "youtube_get_owned_playlist_items",
+    handlers.getOwnedPlaylistItems,
+  ),
 );
 
 server.registerTool(
@@ -101,7 +112,7 @@ server.registerTool(
       "Creates a playlist owned by the authenticated channel. New playlists default to private.",
     inputSchema: createPlaylistSchema.shape,
   },
-  handlers.createPlaylist,
+  withRequestTiming("youtube_create_playlist", handlers.createPlaylist),
 );
 
 server.registerTool(
@@ -112,7 +123,7 @@ server.registerTool(
       "Updates metadata on a playlist owned by the authenticated channel.",
     inputSchema: updatePlaylistInputSchema.shape,
   },
-  handlers.updatePlaylist,
+  withRequestTiming("youtube_update_playlist", handlers.updatePlaylist),
 );
 
 server.registerTool(
@@ -123,7 +134,7 @@ server.registerTool(
       "Adds a public video to a playlist owned by the authenticated channel.",
     inputSchema: addPlaylistVideoSchema.shape,
   },
-  handlers.addPlaylistVideo,
+  withRequestTiming("youtube_add_playlist_video", handlers.addPlaylistVideo),
 );
 
 server.registerTool(
@@ -134,7 +145,7 @@ server.registerTool(
       "Appends reviewed public videos to an owned playlist in the supplied order. Requires confirm: true.",
     inputSchema: addPlaylistVideosSchema.shape,
   },
-  handlers.addPlaylistVideos,
+  withRequestTiming("youtube_add_playlist_videos", handlers.addPlaylistVideos),
 );
 
 server.registerTool(
@@ -145,7 +156,10 @@ server.registerTool(
       "Removes one exact item from an owned playlist. Requires confirm: true.",
     inputSchema: removePlaylistItemSchema.shape,
   },
-  handlers.removePlaylistItem,
+  withRequestTiming(
+    "youtube_remove_playlist_item",
+    handlers.removePlaylistItem,
+  ),
 );
 
 server.registerTool(
@@ -156,7 +170,10 @@ server.registerTool(
       "Moves one exact item in an owned playlist. Requires confirm: true.",
     inputSchema: reorderPlaylistItemSchema.shape,
   },
-  handlers.reorderPlaylistItem,
+  withRequestTiming(
+    "youtube_reorder_playlist_item",
+    handlers.reorderPlaylistItem,
+  ),
 );
 
 server.registerTool(
@@ -167,7 +184,10 @@ server.registerTool(
       "Applies a reviewed complete item-ID order to an owned playlist of at most 250 items. Requires confirm: true.",
     inputSchema: applyPlaylistOrderSchema.shape,
   },
-  handlers.applyPlaylistOrder,
+  withRequestTiming(
+    "youtube_apply_playlist_order",
+    handlers.applyPlaylistOrder,
+  ),
 );
 
 server.registerTool(
@@ -178,7 +198,7 @@ server.registerTool(
       "Copies a bounded page range from a readable playlist into a new owned playlist. Requires confirm: true.",
     inputSchema: clonePlaylistSchema.shape,
   },
-  handlers.clonePlaylist,
+  withRequestTiming("youtube_clone_playlist", handlers.clonePlaylist),
 );
 
 server.registerTool(
@@ -188,7 +208,7 @@ server.registerTool(
     description: "Searches one explicit page of public YouTube channels.",
     inputSchema: searchChannelsSchema.shape,
   },
-  handlers.searchChannels,
+  withRequestTiming("youtube_search_channels", handlers.searchChannels),
 );
 server.registerTool(
   "youtube_search_playlists",
@@ -197,7 +217,7 @@ server.registerTool(
     description: "Searches one explicit page of public YouTube playlists.",
     inputSchema: searchPlaylistsSchema.shape,
   },
-  handlers.searchPlaylists,
+  withRequestTiming("youtube_search_playlists", handlers.searchPlaylists),
 );
 server.registerTool(
   "youtube_get_comment_replies",
@@ -206,7 +226,7 @@ server.registerTool(
     description: "Gets one explicit page of replies to a YouTube comment.",
     inputSchema: getCommentRepliesSchema.shape,
   },
-  handlers.getCommentReplies,
+  withRequestTiming("youtube_get_comment_replies", handlers.getCommentReplies),
 );
 server.registerTool(
   "youtube_find_playlist_items",
@@ -216,7 +236,7 @@ server.registerTool(
       "Finds literal terms across bounded public or owned playlist pages.",
     inputSchema: findPlaylistItemsSchema.shape,
   },
-  handlers.findPlaylistItems,
+  withRequestTiming("youtube_find_playlist_items", handlers.findPlaylistItems),
 );
 server.registerTool(
   "youtube_plan_playlist_cleanup",
@@ -226,7 +246,10 @@ server.registerTool(
       "Plans deterministic duplicate and unavailable-item removals for an owned playlist without making changes.",
     inputSchema: planPlaylistCleanupSchema.shape,
   },
-  handlers.planPlaylistCleanup,
+  withRequestTiming(
+    "youtube_plan_playlist_cleanup",
+    handlers.planPlaylistCleanup,
+  ),
 );
 server.registerTool(
   "youtube_apply_playlist_cleanup",
@@ -236,7 +259,10 @@ server.registerTool(
       "Applies reviewed exact cleanup removals to an owned playlist. Requires confirm: true.",
     inputSchema: applyPlaylistCleanupSchema.shape,
   },
-  handlers.applyPlaylistCleanup,
+  withRequestTiming(
+    "youtube_apply_playlist_cleanup",
+    handlers.applyPlaylistCleanup,
+  ),
 );
 server.registerTool(
   "youtube_get_video",
@@ -245,7 +271,7 @@ server.registerTool(
     description: "Gets normalized public metadata for a YouTube video URL.",
     inputSchema: getVideoSchema.shape,
   },
-  handlers.getVideo,
+  withRequestTiming("youtube_get_video", handlers.getVideo),
 );
 
 server.registerTool(
@@ -256,7 +282,7 @@ server.registerTool(
       "Searches one explicit page of public YouTube videos and returns normalized metadata.",
     inputSchema: searchVideosSchema.shape,
   },
-  handlers.searchVideos,
+  withRequestTiming("youtube_search_videos", handlers.searchVideos),
 );
 
 server.registerTool(
@@ -267,7 +293,7 @@ server.registerTool(
       "Gets one explicit page of a public YouTube playlist, including item IDs and positions.",
     inputSchema: getPlaylistItemsSchema.shape,
   },
-  handlers.getPlaylistItems,
+  withRequestTiming("youtube_get_playlist_items", handlers.getPlaylistItems),
 );
 
 server.registerTool(
@@ -278,7 +304,10 @@ server.registerTool(
       "Lists creator and automatic caption tracks exposed for a YouTube video.",
     inputSchema: getTranscriptLanguagesSchema.shape,
   },
-  handlers.getTranscriptLanguages,
+  withRequestTiming(
+    "youtube_list_transcript_languages",
+    handlers.getTranscriptLanguages,
+  ),
 );
 
 server.registerTool(
@@ -289,7 +318,7 @@ server.registerTool(
       "Gets one explicit page of timestamped creator or automatic YouTube caption segments.",
     inputSchema: getTranscriptSchema.shape,
   },
-  handlers.getTranscript,
+  withRequestTiming("youtube_get_transcript", handlers.getTranscript),
 );
 server.registerTool(
   "youtube_search_transcript",
@@ -299,7 +328,7 @@ server.registerTool(
       "Finds literal terms in one explicit window of a YouTube caption track.",
     inputSchema: searchTranscriptSchema.shape,
   },
-  handlers.searchTranscript,
+  withRequestTiming("youtube_search_transcript", handlers.searchTranscript),
 );
 
 server.registerTool(
@@ -310,7 +339,7 @@ server.registerTool(
       "Gets normalized public metadata for a YouTube channel URL using /channel/CHANNEL_ID or /@handle.",
     inputSchema: getChannelSchema.shape,
   },
-  handlers.getChannel,
+  withRequestTiming("youtube_get_channel", handlers.getChannel),
 );
 
 server.registerTool(
@@ -321,7 +350,7 @@ server.registerTool(
       "Gets one explicit page of recent public uploads from a YouTube channel URL.",
     inputSchema: getChannelVideosSchema.shape,
   },
-  handlers.getChannelVideos,
+  withRequestTiming("youtube_get_channel_videos", handlers.getChannelVideos),
 );
 
 server.registerTool(
@@ -332,7 +361,7 @@ server.registerTool(
       "Finds literal terms across an explicit bounded number of comment pages. Results always describe retrieved pages only, never every comment on the video.",
     inputSchema: findCommentsSchema.shape,
   },
-  handlers.findComments,
+  withRequestTiming("youtube_find_comments", handlers.findComments),
 );
 
 server.registerTool(
@@ -343,7 +372,7 @@ server.registerTool(
       "Gets one explicit page of public YouTube comment threads. matchTerms only filters the retrieved page, not every comment on the video.",
     inputSchema: getCommentsSchema.shape,
   },
-  handlers.getComments,
+  withRequestTiming("youtube_get_comments", handlers.getComments),
 );
 
 await server.connect(new StdioServerTransport());
