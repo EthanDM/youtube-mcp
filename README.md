@@ -130,6 +130,8 @@ Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run 
 
 For an optional persistent macOS setup, see [the ChatGPT tunnel runbook](docs/persistent-chatgpt-tunnel-macos.md). It uses a private runtime-key file and a user LaunchAgent so the tunnel starts again after login and stays available while the Mac is awake and online.
 
+Tool handlers emit JSON timing entries to stderr: `tool_start`, `tool_pending` every 15 seconds while running, and `tool_end` with a `success`, `error`, or `exception` outcome. Entries contain a UTC timestamp, tool name, generated request ID, and elapsed milliseconds; they exclude arguments, response content, and exception details. In the persistent tunnel setup, these entries go to the configured error log. A start without an end identifies an unfinished handler; no start means the request has not reached a tool handler (including requests rejected before handler execution). Timing logs become active after rebuilding and restarting the server.
+
 Do not commit the Google API key, OAuth client credentials, OpenAI runtime key, generated tunnel configuration, or local token file.
 
 ## Privacy and API terms
