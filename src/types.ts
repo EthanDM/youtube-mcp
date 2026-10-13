@@ -155,6 +155,8 @@ export type YoutubeTranscriptPage = {
     language: string;
     track_type: "creator" | "automatic";
     display_name?: string;
+    source?: "caption_track" | "browser";
+    durations_inferred?: boolean;
     segments: YoutubeTranscriptSegment[];
     text: string;
     returned_segments: number;
@@ -339,6 +341,8 @@ export type YoutubeTranscriptSearchResult = {
     language: string;
     track_type: "creator" | "automatic";
     display_name?: string;
+    source?: "caption_track" | "browser";
+    durations_inferred?: boolean;
     segments: YoutubeTranscriptSegment[];
     matched_count: number;
     matched_terms: string[];

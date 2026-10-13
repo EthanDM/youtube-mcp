@@ -8,6 +8,7 @@ export const YOUTUBE_OAUTH_SCOPE =
 export type YoutubeConfig = {
   apiKey?: string;
   ytDlpPath?: string;
+  browserTranscriptFallback?: boolean;
 };
 
 export type YoutubeOAuthConfig = {
@@ -22,6 +23,8 @@ export function getYoutubeConfig(): YoutubeConfig {
   return {
     apiKey,
     ytDlpPath: process.env.YT_DLP_PATH?.trim() || undefined,
+    browserTranscriptFallback:
+      process.env.YOUTUBE_BROWSER_TRANSCRIPT_FALLBACK === "true",
   };
 }
 

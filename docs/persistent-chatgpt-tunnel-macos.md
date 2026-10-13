@@ -76,7 +76,7 @@ Create `~/Library/LaunchAgents/com.example.youtube-mcp-tunnel.plist`. Replace `Y
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Interactive</string>
   <key>StandardOutPath</key>
   <string>/Users/YOUR_USERNAME/Library/Logs/youtube-mcp-tunnel.log</string>
   <key>StandardErrorPath</key>
@@ -94,6 +94,8 @@ launchctl kickstart -k "gui/$(id -u)/com.example.youtube-mcp-tunnel"
 ```
 
 The LaunchAgent starts after login and restarts the client when it exits. It does not keep the Mac awake or make the MCP available while the Mac is powered off or asleep.
+
+Use `Interactive` for this request-serving agent. macOS background scheduling is inherited by child processes and can severely delay caption discovery: a local test completed in about four seconds in the foreground but exceeded 35 seconds under `taskpolicy -b`. The background LaunchAgent also produced transcript timeouts and tunnel errors. After correcting an existing plist, unload and bootstrap the agent so launchd reloads its scheduling configuration; `kickstart` alone does not reload the plist.
 
 ## Verify and troubleshoot
 

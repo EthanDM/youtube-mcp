@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TranscriptClient } from "../../src/lib/transcript.js";
 
@@ -166,6 +166,52 @@ process.stdout.write(JSON.stringify({id: "cyeTIEy2qus", automatic_captions: trac
         cursor: first.transcript.next_cursor,
       }),
     ).rejects.toMatchObject({ code: "transcript_cursor_invalid" });
+  });
+
+  it("prefers original automatic English while preserving explicit language and cursors", async () => {
+    const client = createClient({
+      language: "en-US",
+      automatic_captions: {
+        en: [{ url: "https://captions.example/translated", ext: "json3" }],
+        "en-orig": [{ url: "https://captions.example/original", ext: "json3" }],
+      },
+    });
+    const first = await client.getTranscript({ url: videoUrl, maxSegments: 1 });
+    expect(first.transcript.language).toBe("en-orig");
+    const next = await client.getTranscript({
+      url: videoUrl,
+      maxSegments: 1,
+      cursor: first.transcript.next_cursor,
+    });
+    expect(next.transcript).toMatchObject({
+      language: "en-orig",
+      complete: true,
+    });
+    const explicit = await client.getTranscript({
+      url: videoUrl,
+      language: "en",
+      maxSegments: 1,
+    });
+    expect(explicit.transcript.language).toBe("en");
+  });
+
+  it("keeps creator English ahead of original automatic English", async () => {
+    const client = createClient({
+      subtitles: {
+        en: [{ url: "https://captions.example/creator", ext: "json3" }],
+      },
+      automatic_captions: {
+        "en-orig": [{ url: "https://captions.example/original", ext: "json3" }],
+      },
+    });
+    const result = await client.getTranscript({
+      url: videoUrl,
+      maxSegments: 1,
+    });
+    expect(result.transcript).toMatchObject({
+      language: "en",
+      track_type: "creator",
+    });
   });
 
   it("falls back to automatic original-language captions and lists tracks", async () => {
@@ -375,6 +421,126 @@ process.stdout.write(JSON.stringify({id: "cyeTIEy2qus", automatic_captions: trac
       "https://captions.example/creator-1",
       "https://captions.example/creator-2",
     ]);
+  });
+
+  it("reports persistent caption rate limits safely after one retry", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runProcess = vi.fn(async () =>
+      JSON.stringify({
+        subtitles: {
+          en: [{ url: "https://captions.example/private-token", ext: "json3" }],
+        },
+      }),
+    );
+    const fetchCaption = vi.fn(
+      async () => new Response("busy", { status: 429 }),
+    );
+    const client = new TranscriptClient("yt-dlp", runProcess, fetchCaption);
+    try {
+      await expect(
+        client.getTranscript({ url: videoUrl, maxSegments: 1 }),
+      ).rejects.toMatchObject({
+        code: "youtube_rate_limited",
+        details: {
+          code: "youtube_rate_limited",
+          stage: "caption_fetch",
+          status: 429,
+          retryable: false,
+          guidance: expect.stringContaining("Stop retrying"),
+        },
+      });
+      expect(runProcess).toHaveBeenCalledTimes(2);
+      expect(fetchCaption).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledTimes(1);
+      const diagnostic = JSON.parse(log.mock.calls[0][0] as string);
+      expect(diagnostic).toMatchObject({
+        event: "youtube_caption_fetch_failed",
+        videoId: "dQw4w9WgXcQ",
+        status: 429,
+      });
+      expect(JSON.stringify(diagnostic)).not.toContain("private-token");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("falls back on persistent 429 and keeps browser cursors on the browser path", async () => {
+    const fetchCaption = vi.fn(
+      async () => new Response("busy", { status: 429 }),
+    );
+    const browser = vi.fn(async () => [
+      { start_seconds: 0, duration_seconds: 5, text: "Browser first" },
+      { start_seconds: 5, duration_seconds: 5, text: "Browser second" },
+    ]);
+    const discoveryUrls: string[] = [];
+    const playlistVideoUrl = `${videoUrl}&list=PLexample&index=2`;
+    const client = new TranscriptClient(
+      "yt-dlp",
+      async (_path, args) => {
+        discoveryUrls.push(args.at(-1)!);
+        return JSON.stringify({
+          language: "en-US",
+          duration: 10,
+          automatic_captions: {
+            "en-orig": [
+              { url: "https://captions.example/original", ext: "json3" },
+            ],
+          },
+        });
+      },
+      fetchCaption,
+      browser,
+    );
+    const first = await client.getTranscript({
+      url: playlistVideoUrl,
+      maxSegments: 1,
+    });
+    expect(first.transcript).toMatchObject({
+      source: "browser",
+      durations_inferred: true,
+      text: "Browser first",
+      complete: false,
+    });
+    expect(fetchCaption).toHaveBeenCalledTimes(2);
+    const second = await client.searchTranscript({
+      url: playlistVideoUrl,
+      maxSegments: 1,
+      cursor: first.transcript.next_cursor,
+      matchTerms: ["second"],
+    });
+    expect(second.transcript).toMatchObject({
+      source: "browser",
+      complete: true,
+      matched_count: 1,
+    });
+    expect(browser).toHaveBeenCalledTimes(2);
+    expect(discoveryUrls).toHaveLength(4);
+    expect(discoveryUrls.every((url) => url === videoUrl)).toBe(true);
+    for (const [request] of browser.mock.calls as unknown as Array<
+      [{ url: string }]
+    >) {
+      expect(request.url).toBe(videoUrl);
+    }
+    expect(fetchCaption).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not call browser fallback for permanent caption errors", async () => {
+    const browser = vi.fn();
+    const client = new TranscriptClient(
+      "yt-dlp",
+      async () =>
+        JSON.stringify({
+          subtitles: {
+            en: [{ url: "https://captions.example/missing", ext: "json3" }],
+          },
+        }),
+      async () => new Response("missing", { status: 404 }),
+      browser,
+    );
+    await expect(
+      client.getTranscript({ url: videoUrl, maxSegments: 1 }),
+    ).rejects.toMatchObject({ code: "transcript_fetch_failed" });
+    expect(browser).not.toHaveBeenCalled();
   });
 
   it("does not retry permanent caption failures", async () => {

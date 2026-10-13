@@ -9,6 +9,7 @@ import { getYoutubeConfig, getYoutubeOAuthConfig } from "./config.js";
 import { YoutubeOAuthClient } from "./auth/oauth.js";
 import { YoutubeTokenStore } from "./auth/token-store.js";
 import { TranscriptClient } from "./lib/transcript.js";
+import { getBrowserTranscript } from "./lib/browser-transcript.js";
 import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
 import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 import { YoutubeClient } from "./lib/youtube.js";
@@ -48,7 +49,12 @@ const server = new McpServer({ name: "youtube-mcp", version: "0.6.0" });
 const publicClient = new YoutubeClient(config);
 const handlers = createToolHandlers(
   publicClient,
-  new TranscriptClient(config.ytDlpPath),
+  new TranscriptClient(
+    config.ytDlpPath,
+    undefined,
+    undefined,
+    config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+  ),
   () => {
     const oauthConfig = getYoutubeOAuthConfig();
     const tokenStore = new YoutubeTokenStore(oauthConfig.tokenFile);

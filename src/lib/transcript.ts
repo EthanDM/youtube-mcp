@@ -10,6 +10,7 @@ import type {
 } from "../types.js";
 import { YoutubeMcpError } from "../errors.js";
 import { parseYoutubeUrl } from "./youtube-url.js";
+import { getBrowserTranscript } from "./browser-transcript.js";
 
 const execFileAsync = promisify(execFile);
 // Auto-translated caption URLs alone exceeded 11 MB for cyeTIEy2qus.
@@ -43,18 +44,21 @@ type Cursor = {
   language: string;
   trackType: "creator" | "automatic";
   offset: number;
+  source?: "browser";
 };
 
 type ResolvedTranscript = {
   metadata: YtDlpMetadata;
   track: SelectedTrack;
   allSegments: YoutubeTranscriptSegment[];
+  source?: "browser";
 };
 
 class TranscriptFetchError extends YoutubeMcpError {
   constructor(
     message: string,
     readonly retryable: boolean,
+    readonly status?: number,
   ) {
     super(message, "transcript_fetch_failed");
     this.name = "TranscriptFetchError";
@@ -71,6 +75,7 @@ export class TranscriptClient {
     private readonly ytDlpPath: string | undefined,
     private readonly runProcess: TranscriptProcess = runYtDlp,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly browserFallback?: typeof getBrowserTranscript,
   ) {}
 
   async listLanguages(url: string): Promise<YoutubeTranscriptLanguageList> {
@@ -101,6 +106,8 @@ export class TranscriptClient {
         language: window.track.language,
         track_type: window.track.track_type,
         display_name: window.track.display_name,
+        source: window.source || "caption_track",
+        ...(window.source === "browser" ? { durations_inferred: true } : {}),
         segments: window.segments,
         text: window.segments.map((segment) => segment.text).join("\n"),
         returned_segments: window.segments.length,
@@ -130,6 +137,8 @@ export class TranscriptClient {
         language: window.track.language,
         track_type: window.track.track_type,
         display_name: window.track.display_name,
+        source: window.source || "caption_track",
+        ...(window.source === "browser" ? { durations_inferred: true } : {}),
         segments,
         matched_count: segments.length,
         matched_terms: terms.filter((term) =>
@@ -158,31 +167,14 @@ export class TranscriptClient {
     totalSegments: number;
     complete: boolean;
     nextCursor?: string;
+    source?: "browser";
   }> {
     const parsed = parseYoutubeUrl(input.url);
     const cursor = input.cursor ? decodeCursor(input.cursor) : undefined;
     if (cursor && cursor.videoId !== parsed.videoId) {
       throw transcriptCursorInvalid();
     }
-    let resolved: ResolvedTranscript;
-    try {
-      resolved = await this.resolveTranscript(input, cursor);
-    } catch (error) {
-      if (!(error instanceof TranscriptFetchError) || !error.retryable) {
-        throw error;
-      }
-      try {
-        resolved = await this.resolveTranscript(input, cursor);
-      } catch (retryError) {
-        if (retryError instanceof TranscriptFetchError) {
-          throw new YoutubeMcpError(
-            `${retryError.message} A fresh caption URL retry also failed.`,
-            retryError.code,
-          );
-        }
-        throw retryError;
-      }
-    }
+    const resolved = await this.resolveWithFallback(input, cursor);
     const { allSegments, metadata, track } = resolved;
     const offset = cursor?.offset || 0;
     if (offset > allSegments.length) {
@@ -203,6 +195,7 @@ export class TranscriptClient {
         duration_iso8601: toIsoDuration(metadata.duration),
       },
       track,
+      source: resolved.source,
       segments,
       totalSegments: allSegments.length,
       complete,
@@ -213,8 +206,111 @@ export class TranscriptClient {
             language: track.language,
             trackType: track.track_type,
             offset: nextOffset,
+            ...(resolved.source ? { source: resolved.source } : {}),
           }),
     };
+  }
+
+  /** Browser cursors stay on the browser path because UI and caption-track segment boundaries differ. */
+  private async resolveWithFallback(
+    input: { url: string; language?: string },
+    cursor: Cursor | undefined,
+  ): Promise<ResolvedTranscript> {
+    if (cursor?.source === "browser")
+      return this.resolveBrowserTranscript(input, cursor);
+    try {
+      return await this.resolveWithRetry(input, cursor);
+    } catch (error) {
+      if (
+        !(error instanceof YoutubeMcpError) ||
+        error.code !== "youtube_rate_limited" ||
+        !this.browserFallback ||
+        cursor
+      )
+        throw error;
+      return this.resolveBrowserTranscript(input, cursor);
+    }
+  }
+
+  private async resolveBrowserTranscript(
+    input: { url: string; language?: string },
+    cursor: Cursor | undefined,
+  ): Promise<ResolvedTranscript> {
+    if (!this.browserFallback)
+      throw new YoutubeMcpError(
+        "Browser fallback is disabled for this cursor.",
+        "browser_transcript_disabled",
+      );
+    const { canonicalUrl } = parseYoutubeUrl(input.url);
+    const metadata = await this.getMetadata(canonicalUrl);
+    const track = selectTrack(
+      metadata,
+      input.language || cursor?.language,
+      cursor?.trackType,
+    );
+    if (
+      !track ||
+      (cursor &&
+        (cursor.language !== track.language ||
+          cursor.trackType !== track.track_type))
+    )
+      throw transcriptCursorInvalid();
+    const allSegments = await this.browserFallback({
+      url: canonicalUrl,
+      language: track.language,
+      videoLanguage: metadata.language,
+      trackType: track.track_type,
+      durationSeconds: metadata.duration,
+    });
+    return { metadata, track, allSegments, source: "browser" };
+  }
+
+  private async resolveWithRetry(
+    input: { url: string; language?: string },
+    cursor: Cursor | undefined,
+  ): Promise<ResolvedTranscript> {
+    const parsed = parseYoutubeUrl(input.url);
+    let resolved: ResolvedTranscript;
+    try {
+      resolved = await this.resolveTranscript(input, cursor);
+    } catch (error) {
+      if (!(error instanceof TranscriptFetchError) || !error.retryable) {
+        throw error;
+      }
+      try {
+        resolved = await this.resolveTranscript(input, cursor);
+      } catch (retryError) {
+        if (retryError instanceof TranscriptFetchError) {
+          if (retryError.status === 429) {
+            const details = {
+              code: "youtube_rate_limited",
+              stage: "caption_fetch",
+              videoId: parsed.videoId,
+              status: 429,
+              cause:
+                "YouTube rate limited caption retrieval (HTTP 429). The single fresh caption URL retry also failed.",
+              retryable: false,
+              guidance:
+                "Stop retrying transcript retrieval or search in this attempt. Wait before trying again, or use YouTube's Show transcript panel.",
+            };
+            console.error(
+              JSON.stringify({
+                timestamp: new Date().toISOString(),
+                event: "youtube_caption_fetch_failed",
+                ...details,
+              }),
+            );
+            throw new YoutubeMcpError(details.cause, details.code, details);
+          }
+          throw new YoutubeMcpError(
+            `${retryError.message} A fresh caption URL retry also failed.`,
+            retryError.code,
+          );
+        }
+        throw retryError;
+      }
+    }
+    return resolved;
   }
 
   private async resolveTranscript(
@@ -320,6 +416,7 @@ export class TranscriptClient {
       throw new TranscriptFetchError(
         `The selected transcript track request returned HTTP ${response.status}.`,
         isRetryableCaptionStatus(response.status),
+        response.status,
       );
     }
     let text: string;
@@ -486,7 +583,14 @@ function selectTrack(
     const family = tracks.filter((track) =>
       track.language.startsWith(`${language}-`),
     );
-    const selected = [...exact, ...family].sort(preferCreator)[0];
+    const selected = [...exact, ...family].sort(
+      (left, right) =>
+        preferCreator(left, right) ||
+        (requestedLanguage
+          ? 0
+          : Number(right.language.endsWith("-orig")) -
+            Number(left.language.endsWith("-orig"))),
+    )[0];
     if (selected) return selected;
   }
   return requestedLanguage ? undefined : tracks.sort(preferCreator)[0];
@@ -718,6 +822,7 @@ function decodeCursor(value: string): Cursor {
       !cursor.language ||
       !["creator", "automatic"].includes(cursor.trackType) ||
       !Number.isInteger(cursor.offset) ||
+      (cursor.source !== undefined && cursor.source !== "browser") ||
       cursor.offset < 0
     ) {
       throw new Error();

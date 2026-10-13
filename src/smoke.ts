@@ -6,6 +6,7 @@ import { YoutubeTokenStore } from "./auth/token-store.js";
 import { YoutubeApiError } from "./errors.js";
 import { YoutubeClient } from "./lib/youtube.js";
 import { TranscriptClient } from "./lib/transcript.js";
+import { getBrowserTranscript } from "./lib/browser-transcript.js";
 import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
 import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 
@@ -13,7 +14,13 @@ const defaultSmokeUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 async function main(): Promise<void> {
   const client = new YoutubeClient(getYoutubeConfig());
-  const transcriptClient = new TranscriptClient(getYoutubeConfig().ytDlpPath);
+  const config = getYoutubeConfig();
+  const transcriptClient = new TranscriptClient(
+    config.ytDlpPath,
+    undefined,
+    undefined,
+    config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+  );
   const videoUrl = process.env.YOUTUBE_SMOKE_URL?.trim() || defaultSmokeUrl;
   const video = await client.getVideo(videoUrl);
   if (!video.id || !video.title)

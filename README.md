@@ -124,6 +124,12 @@ Caption discovery permits up to 32 MiB of yt-dlp output so videos with many auto
 
 `youtube_search_transcript` applies literal-term matching only to one explicit transcript segment window and returns matching timestamped segments with `search_scope: "retrieved_segments_only"`. It accepts compatible cursors from either transcript tool.
 
+If caption retrieval still returns HTTP 429 after the single fresh-URL retry, the tool reports `youtube_rate_limited` with `retryable: false` and guidance to stop transcript retrieval/search retries for that attempt. Try again later or use YouTube's **Show transcript** panel. A sanitized `youtube_caption_fetch_failed` stderr event records the video ID, status, and guidance without caption URLs or transcript text.
+
+For an optional browser fallback, run `pnpm exec playwright install chromium --no-shell` and set `YOUTUBE_BROWSER_TRANSCRIPT_FALLBACK=true` in your local `.env` or server environment. After persistent caption-fetch HTTP 429, the server opens **Show transcript** in a temporary signed-out Chromium session. This fallback currently supports original English captions only. It verifies the browser caption inventory against the requested language and creator/automatic type, rejecting missing or ambiguous matches (including videos with both creator and automatic English tracks). It does not log in, reuse saved cookies, download media, or save transcripts. A browser read has a 45-second deadline after a bounded launch, and only one browser request runs at a time.
+
+Fallback responses identify `source: "browser"` and `durations_inferred: true`; durations come from adjacent UI timestamps and the video's end time. Browser cursors keep subsequent retrieval/search on the browser path because its segment boundaries differ from caption tracks. Existing caption-track cursors are never silently switched to browser segments. Each page reopens the transcript without caching. YouTube verification prompts or changes to its page structure can still prevent retrieval.
+
 ## Optional ChatGPT connection
 
 Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run `tunnel-client` where it can reach the built stdio server, and register the tunnel endpoint in ChatGPT Developer Mode. The tunnel lets ChatGPT reach a private MCP server without a public listener; it is not a public plugin-distribution path.
