@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     undefined,
     undefined,
     config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+    config.ytDlpCookiesBrowser,
   );
   const videoUrl = process.env.YOUTUBE_SMOKE_URL?.trim() || defaultSmokeUrl;
   const video = await client.getVideo(videoUrl);

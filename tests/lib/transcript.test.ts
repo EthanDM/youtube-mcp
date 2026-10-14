@@ -9,6 +9,32 @@ import { TranscriptClient } from "../../src/lib/transcript.js";
 const videoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 describe("TranscriptClient", () => {
+  it.each([undefined, "chrome", "firefox:/tmp/Dedicated YouTube Profile"])(
+    "uses browser cookies only when opted in (%s)",
+    async (browser) => {
+      const runProcess = vi.fn(async (path: string, args: string[]) => {
+        expect(path).toBe("yt-dlp");
+        expect(args.includes("--cookies-from-browser")).toBe(Boolean(browser));
+        if (browser)
+          expect(args.slice(0, 2)).toEqual(["--cookies-from-browser", browser]);
+        expect(args).not.toContain("--cookies");
+        return JSON.stringify({
+          subtitles: {
+            en: [{ ext: "json3", url: "https://captions.example/track" }],
+          },
+        });
+      });
+      const client = new TranscriptClient(
+        undefined,
+        runProcess,
+        undefined,
+        undefined,
+        browser,
+      );
+      await client.listLanguages(videoUrl);
+      expect(runProcess).toHaveBeenCalledTimes(1);
+    },
+  );
   it("accepts real subprocess metadata larger than the former 5 MB limit", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "youtube-caption-test-"),

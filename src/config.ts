@@ -8,6 +8,7 @@ export const YOUTUBE_OAUTH_SCOPE =
 export type YoutubeConfig = {
   apiKey?: string;
   ytDlpPath?: string;
+  ytDlpCookiesBrowser?: string;
   browserTranscriptFallback?: boolean;
 };
 
@@ -20,8 +21,40 @@ export type YoutubeOAuthConfig = {
 
 export function getYoutubeConfig(): YoutubeConfig {
   const apiKey = process.env.YOUTUBE_API_KEY?.trim();
+  const cookiesBrowser =
+    process.env.YOUTUBE_COOKIES_BROWSER?.trim() || undefined;
+  if (
+    cookiesBrowser &&
+    ![
+      "chrome",
+      "chromium",
+      "firefox",
+      "edge",
+      "brave",
+      "opera",
+      "vivaldi",
+    ].includes(cookiesBrowser)
+  ) {
+    throw new Error("YOUTUBE_COOKIES_BROWSER must name a supported browser.");
+  }
+  const cookiesProfile = process.env.YOUTUBE_COOKIES_PROFILE?.trim();
+  // Never let session access silently select an everyday browser profile.
+  if (cookiesBrowser && !cookiesProfile) {
+    throw new Error(
+      "YOUTUBE_COOKIES_BROWSER requires an explicit YOUTUBE_COOKIES_PROFILE.",
+    );
+  }
+  if (cookiesProfile && !cookiesBrowser) {
+    throw new Error(
+      "YOUTUBE_COOKIES_PROFILE requires YOUTUBE_COOKIES_BROWSER.",
+    );
+  }
   return {
     apiKey,
+    ytDlpCookiesBrowser:
+      cookiesBrowser && cookiesProfile
+        ? `${cookiesBrowser}:${cookiesProfile}`
+        : cookiesBrowser,
     ytDlpPath: process.env.YT_DLP_PATH?.trim() || undefined,
     browserTranscriptFallback:
       process.env.YOUTUBE_BROWSER_TRANSCRIPT_FALLBACK === "true",

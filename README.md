@@ -132,6 +132,8 @@ Fallback responses identify `source: "browser"` and `durations_inferred: true`; 
 
 ## Optional ChatGPT connection
 
+For opt-in signed-in caption discovery, set `YOUTUBE_COOKIES_BROWSER=chrome` (or another browser listed in `.env.example`) in your private local environment, then rebuild and restart. You must also set `YOUTUBE_COOKIES_PROFILE` to an explicit dedicated profile directory to avoid selecting your everyday profile. yt-dlp reads that browser's local session without exporting a cookie file. macOS may request Keychain access for Chromium cookie decryption. Cookie values are never included in MCP results or diagnostics. This does not change playlist OAuth or the separate signed-out browser fallback.
+
 Keep this server and `.env` on the Mac. Create an OpenAI Secure MCP Tunnel, run `tunnel-client` where it can reach the built stdio server, and register the tunnel endpoint in ChatGPT Developer Mode. The tunnel lets ChatGPT reach a private MCP server without a public listener; it is not a public plugin-distribution path.
 
 For an optional persistent macOS setup, see [the ChatGPT tunnel runbook](docs/persistent-chatgpt-tunnel-macos.md). It uses a private runtime-key file and a user LaunchAgent so the tunnel starts again after login and stays available while the Mac is awake and online.

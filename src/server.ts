@@ -54,6 +54,7 @@ const handlers = createToolHandlers(
     undefined,
     undefined,
     config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+    config.ytDlpCookiesBrowser,
   ),
   () => {
     const oauthConfig = getYoutubeOAuthConfig();

@@ -76,6 +76,8 @@ export class TranscriptClient {
     private readonly runProcess: TranscriptProcess = runYtDlp,
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly browserFallback?: typeof getBrowserTranscript,
+    // Opt-in local session access; never exported or included in diagnostics.
+    private readonly cookiesBrowser?: string,
   ) {}
 
   async listLanguages(url: string): Promise<YoutubeTranscriptLanguageList> {
@@ -354,6 +356,9 @@ export class TranscriptClient {
     let output: string;
     try {
       output = await this.runProcess(this.ytDlpPath || "yt-dlp", [
+        ...(this.cookiesBrowser
+          ? ["--cookies-from-browser", this.cookiesBrowser]
+          : []),
         "--skip-download",
         "--dump-single-json",
         "--no-cache-dir",
