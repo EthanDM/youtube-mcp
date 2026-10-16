@@ -9,7 +9,7 @@ import { getYoutubeConfig, getYoutubeOAuthConfig } from "./config.js";
 import { YoutubeOAuthClient } from "./auth/oauth.js";
 import { YoutubeTokenStore } from "./auth/token-store.js";
 import { TranscriptClient } from "./lib/transcript.js";
-import { getBrowserTranscript } from "./lib/browser-transcript.js";
+import { createBrowserTranscriptFallback } from "./lib/browser-transcript.js";
 import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
 import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 import { YoutubeClient } from "./lib/youtube.js";
@@ -53,7 +53,7 @@ const handlers = createToolHandlers(
     config.ytDlpPath,
     undefined,
     undefined,
-    config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+    createBrowserTranscriptFallback(config),
     config.ytDlpCookiesBrowser,
   ),
   () => {

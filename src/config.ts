@@ -10,6 +10,8 @@ export type YoutubeConfig = {
   ytDlpPath?: string;
   ytDlpCookiesBrowser?: string;
   browserTranscriptFallback?: boolean;
+  browserTranscriptBackend?: "chromium" | "firefox-native";
+  nativeFirefoxProfile?: string;
 };
 
 export type YoutubeOAuthConfig = {
@@ -20,6 +22,20 @@ export type YoutubeOAuthConfig = {
 };
 
 export function getYoutubeConfig(): YoutubeConfig {
+  const browserBackend =
+    process.env.YOUTUBE_BROWSER_TRANSCRIPT_BACKEND?.trim() || "chromium";
+  if (browserBackend !== "chromium" && browserBackend !== "firefox-native") {
+    throw new Error(
+      "YOUTUBE_BROWSER_TRANSCRIPT_BACKEND must be chromium or firefox-native.",
+    );
+  }
+  const nativeFirefoxProfile =
+    process.env.YOUTUBE_NATIVE_FIREFOX_PROFILE?.trim() || undefined;
+  if (browserBackend === "firefox-native" && !nativeFirefoxProfile) {
+    throw new Error(
+      "firefox-native requires an explicit YOUTUBE_NATIVE_FIREFOX_PROFILE.",
+    );
+  }
   const apiKey = process.env.YOUTUBE_API_KEY?.trim();
   const cookiesBrowser =
     process.env.YOUTUBE_COOKIES_BROWSER?.trim() || undefined;
@@ -50,6 +66,8 @@ export function getYoutubeConfig(): YoutubeConfig {
     );
   }
   return {
+    browserTranscriptBackend: browserBackend,
+    nativeFirefoxProfile,
     apiKey,
     ytDlpCookiesBrowser:
       cookiesBrowser && cookiesProfile

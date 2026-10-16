@@ -6,7 +6,7 @@ import { YoutubeTokenStore } from "./auth/token-store.js";
 import { YoutubeApiError } from "./errors.js";
 import { YoutubeClient } from "./lib/youtube.js";
 import { TranscriptClient } from "./lib/transcript.js";
-import { getBrowserTranscript } from "./lib/browser-transcript.js";
+import { createBrowserTranscriptFallback } from "./lib/browser-transcript.js";
 import { AuthenticatedYoutubeClient } from "./lib/youtube-auth.js";
 import { YoutubeAuthRequestClient } from "./lib/youtube-auth-request-client.js";
 
@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     config.ytDlpPath,
     undefined,
     undefined,
-    config.browserTranscriptFallback ? getBrowserTranscript : undefined,
+    createBrowserTranscriptFallback(config),
     config.ytDlpCookiesBrowser,
   );
   const videoUrl = process.env.YOUTUBE_SMOKE_URL?.trim() || defaultSmokeUrl;

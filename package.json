@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-native-browser.mjs",
     "auth:login": "tsx src/auth/login.ts",
     "auth:logout": "tsx src/auth/logout.ts",
     "auth:status": "tsx src/auth/status.ts",
